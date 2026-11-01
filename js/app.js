@@ -595,7 +595,11 @@
     }
     // Tarjetas: fecha límite cercana y uso alto
     for (const c of creditSummary().cards) {
-      if (c.used > 0 && c.dueDays != null && c.dueDays <= 5) out.push({ lvl: c.dueDays <= 1 ? "bad" : "warn", icon: "card", txt: `Fecha límite de <b>${esc(c.a.name)}</b> ${c.dueDays === 0 ? "es hoy" : c.dueDays === 1 ? "es mañana" : `en ${c.dueDays} días`}: debes ${money(c.used)}` });
+      const stA = cardStatement(c.a);
+      if (stA && stA.payBy && stA.statement > 0) {
+        const dd = daysBetween(today(), stA.payBy);
+        if (dd <= 5) out.push({ lvl: dd <= 1 ? "bad" : "warn", icon: "card", txt: `Paga <b>${money(stA.statement)}</b> de ${esc(c.a.name)} ${dd < 0 ? `(venció hace ${-dd} día${dd === -1 ? "" : "s"})` : dd === 0 ? "hoy" : dd === 1 ? "mañana" : `en ${dd} días`} para no generar intereses` });
+      } else if (!stA && c.used > 0 && c.dueDays != null && c.dueDays <= 5) out.push({ lvl: c.dueDays <= 1 ? "bad" : "warn", icon: "card", txt: `Fecha límite de <b>${esc(c.a.name)}</b> ${c.dueDays === 0 ? "es hoy" : c.dueDays === 1 ? "es mañana" : `en ${c.dueDays} días`}: debes ${money(c.used)}` });
       if (c.limit && c.pct >= 0.8) out.push({ lvl: c.pct >= 1 ? "bad" : "warn", icon: "card", txt: `Usas el <b>${Math.round(c.pct * 100)}%</b> del crédito de ${esc(c.a.name)}` });
     }
     // Presupuestos
@@ -1148,6 +1152,7 @@
     const opts = activeAccs().map((a) => `<option value="${a.id}">${esc(a.name)}</option>`).join("");
     $("#entryAccount").innerHTML = `<option value="">— Sin especificar —</option>` + opts;
     $("#entryAccount").value = entry.account_id && acc(entry.account_id) ? entry.account_id : "";
+    renderPayChips();
     $("#entryToAccount").innerHTML = opts;
     if (entry.to_account_id) $("#entryToAccount").value = entry.to_account_id;
   }
@@ -1187,6 +1192,46 @@
   }
   $("#entryCur").addEventListener("click", (e) => { const b = e.target.closest("[data-cur]"); if (!b) return; entry.currency = b.dataset.cur; syncCurrency(); fitAmount(); });
   $("#entryAmount").addEventListener("input", () => entry.currency === "USD" && syncCurrency());
+  // «¿Con qué pagaste?»: cuentas y tarjetas como botones (las tarjetas muestran su disponible).
+  // Elegir una tarjeta registra el gasto en ella: sube su deuda y baja su disponible automáticamente.
+  function renderPayChips() {
+    const type = entry.type, isT = type === "transferencia";
+    $("#payPick").hidden = isT;
+    $("#accWrap").hidden = !isT;                     // en transferencias se usan los selectores de origen/destino
+    $("#payLabel").textContent = type === "ingreso" ? "¿A qué cuenta entra?" : "¿Con qué pagaste?";
+    const list = activeAccs().filter((a) => type !== "ingreso" || !isCredit(a));
+    $("#payChips").innerHTML = list.map((a) => {
+      const ci = isCredit(a) ? creditInfo(a) : null;
+      return `<button type="button" class="pay-chip ${a.id === $("#entryAccount").value ? "active" : ""} ${ci ? "card" : ""}" data-pay-acc="${a.id}" style="--c:${a.color || colorFor(a.id)}">
+        ${ico(iconKey(a.icon, a.name, ci ? "card" : "wallet"))}<span><b>${esc(a.name)}</b>${ci ? `<small>${ci.limit ? `Disponible ${money(ci.avail)}` : "Tarjeta de crédito"}</small>` : ""}</span></button>`;
+    }).join("");
+    paintCutHint();
+  }
+  // Aviso de corte: a qué estado de cuenta entra la compra y cuándo se paga; y si supera el disponible
+  function paintCutHint() {
+    const a = acc($("#entryAccount").value), h = $("#cardCutHint");
+    if (!a || !isCredit(a) || entry.type !== "gasto") { h.hidden = true; return; }
+    const d = $("#entryDate").value || today(), ci = creditInfo(a);
+    const amtC = C(parseAmount($("#entryAmount").value) || 0) * (entry.currency === "USD" ? (usdRate() || 1) : 1);
+    const prevC = entry.id && S.movements.find((x) => x.id === entry.id)?.account_id === a.id ? C(S.movements.find((x) => x.id === entry.id).amount) : 0;
+    let msg = "";
+    if (a.cut_day) {
+      const cut = WCFin.cutFor(a.cut_day, d), pay = a.due_day ? WCFin.payByFor(cut, a.due_day) : null;
+      msg = `${ico("calendar", "i-sm")} Entra al corte del <b>${fmtShort(cut)}</b>${pay ? ` · la pagas antes del <b>${fmtShort(pay)}</b>` : ""}`;
+    } else msg = `${ico("alert", "i-sm")} Agrega el <b>día de corte</b> de ${esc(a.name)} para saber en qué mes la pagas`;
+    if (ci.limit && amtC - prevC > C(ci.avail)) msg += `<br>${ico("alert", "i-sm")} Supera tu disponible (${money(ci.avail)})`;
+    h.innerHTML = msg; h.hidden = false;
+  }
+  $("#payChips").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-pay-acc]"); if (!b) return;
+    const same = $("#entryAccount").value === b.dataset.payAcc;
+    $("#entryAccount").value = same ? "" : b.dataset.payAcc;     // tocar de nuevo la quita
+    entry.account_id = $("#entryAccount").value || null;
+    renderPayChips();
+  });
+  $("#entryAccount").addEventListener("change", renderPayChips);
+  $("#entryDate").addEventListener("change", paintCutHint);
+  $("#entryAmount").addEventListener("input", paintCutHint);
   const fitAmount = () => { const i = $("#entryAmount"); i.style.width = Math.max(1, i.value.length || 1) + 0.6 + "ch"; };
   $("#entryAmount").addEventListener("input", fitAmount);
   $("#entryType").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) setEntryType(b.dataset.type); });
@@ -1221,7 +1266,7 @@
     };
     // Detalles opcionales
     row.time = $("#entryTime").value || null;
-    row.payment_method = $("#entryMethod").value || null;
+    row.payment_method = $("#entryMethod").value || (() => { const k = acc(account_id)?.kind; return !k || type === "transferencia" ? (type === "transferencia" ? "transferencia" : null) : k === "credito" ? "credito" : k === "efectivo" ? "efectivo" : "debito"; })();
     row.tags = $("#entryTags").value.split(",").map((t) => t.trim().toLowerCase()).filter(Boolean).slice(0, 10);
     row.notes = $("#entryNotes").value.trim() || null;
     row.attachment_path = entry.attachment_path || null;
@@ -1998,13 +2043,21 @@
       <div><span>Crédito</span><b class="num">${lim ? m0(lim) : "—"}</b></div>
       <div><span>Debo</span><b class="num ${debt > 0 ? "neg" : ""}">${m0(debt)}</b></div>
       <div><span>Disponible</span><b class="num ${avail == null ? "" : avail < 0 ? "neg" : "pos"}">${avail == null ? "—" : m0(avail)}</b></div></div>`;
+  const cardStatement = (a) => { const st = WCFin.statementC(a, S.movements, S.debts || [], S.debtPays || [], today()); return st && { ...st, statement: P(st.statement), next: P(st.next), total: P(st.total) }; };
   function cardBlock(c) {
-    const pct = c.limit ? Math.min(1, c.used / c.limit) : 0, col = c.a.color || colorFor(c.a.id);
+    const pct = c.limit ? Math.min(1, c.used / c.limit) : 0, col = c.a.color || colorFor(c.a.id), st = cardStatement(c.a);
     return `<div class="cc tap" data-credit="${c.a.id}">
       <div class="cc-head">${tile(iconKey(c.a.icon, c.a.name, "card"), col, "sm")}<b>${esc(c.a.name)}</b>
-        ${c.due ? `<span class="badge ${c.used > 0 && c.dueDays <= 1 ? "bad" : c.used > 0 && c.dueDays <= 5 ? "warn" : ""}">Pagar antes del ${fmtShort(c.due)}</span>` : `<span class="badge">Sin fecha de pago</span>`}</div>
+        ${st && st.payBy ? (st.statement > 0
+            ? (() => { const dd = daysBetween(today(), st.payBy); return `<span class="badge ${dd <= 1 ? "bad" : dd <= 5 ? "warn" : ""}">Pagar ${money(st.statement)} antes del ${fmtShort(st.payBy)}</span>`; })()
+            : `<span class="badge good">Al corriente</span>`)
+          : c.due ? `<span class="badge ${c.used > 0 && c.dueDays <= 1 ? "bad" : c.used > 0 && c.dueDays <= 5 ? "warn" : ""}">Pagar antes del ${fmtShort(c.due)}</span>` : `<span class="badge">Sin fecha de pago</span>`}</div>
       ${triple(c.limit, c.used, c.limit ? c.avail : null)}
       ${c.limit ? `<div class="bar-soft ${pct >= 0.8 ? "over" : ""}" style="--t:${col};margin-top:10px"><i style="width:${(pct * 100).toFixed(1)}%"></i></div>` : `<p class="hint" style="margin:8px 0 0">Toca para agregar el crédito de esta tarjeta</p>`}
+      ${st ? `<div class="stmt">
+          <div><span>Corte del ${fmtShort(st.lastCut)}</span><b class="num ${st.statement ? "neg" : ""}">${st.statement ? money(st.statement) : "Pagado"}</b><small>${st.statement && st.payBy ? `pagar antes del ${fmtShort(st.payBy)}` : "sin saldo al corte"}</small></div>
+          <div><span>Siguiente corte (${fmtShort(st.nextCut)})</span><b class="num">${money(st.next)}</b><small>${st.nextPayBy ? `se paga el ${fmtShort(st.nextPayBy)}` : "compras después del corte"}</small></div>
+        </div>` : `<p class="hint warn-t" style="margin:8px 0 0">${ico("alert", "i-sm")} Falta el día de corte: tócala para agregarlo</p>`}
     </div>`;
   }
   // Pagos de tarjeta registrados como «Pagos» que todavía no son una tarjeta (por nombre)
@@ -2035,6 +2088,7 @@
     openDyn(`<h2>Crear mis tarjetas</h2><p class="hint">Escribe el crédito (límite) y cuánto debes hoy en cada una. El disponible se calcula solo. Puedes dejar en blanco las que no sepas.</p>
       ${pend.map((f) => `<div class="cc-new" data-fid="${f.id}"><b>${esc(f.name)}</b><span class="hint">Pago el día ${f.day}</span>
         <div class="row2"><label class="field"><span>Crédito</span><input class="inp" data-k="lim" inputmode="decimal" placeholder="0"></label><label class="field"><span>Debo</span><input class="inp" data-k="debt" inputmode="decimal" placeholder="0"></label></div>
+        <div class="row2"><label class="field"><span>Día de corte</span><input class="inp" data-k="cut" type="number" inputmode="numeric" min="1" max="31" placeholder="Ej. 3"></label><label class="field"><span>Día límite de pago</span><input class="inp" data-k="due" type="number" inputmode="numeric" min="1" max="31" value="${f.day || ""}"></label></div>
         <div class="credit-live" data-live></div></div>`).join("")}
       <div class="sheet-actions"><button type="button" class="btn ghost" data-close>Cancelar</button><button type="button" class="btn primary" data-a="save">Crear tarjetas</button></div>`, (root) => {
       const paint = (box) => { const l = C(parseAmount(box.querySelector('[data-k="lim"]').value) || 0), d = C(parseAmount(box.querySelector('[data-k="debt"]').value) || 0);
@@ -2046,8 +2100,9 @@
         const ops = [...root.querySelectorAll(".cc-new")].map((box, i) => {
           const f = S.fixed.find((x) => x.id === box.dataset.fid);
           const lim = parseAmount(box.querySelector('[data-k="lim"]').value) || 0, debt = Math.abs(parseAmount(box.querySelector('[data-k="debt"]').value) || 0);
+          const day = (k) => { const v = parseInt(box.querySelector(`[data-k="${k}"]`).value, 10); return v >= 1 && v <= 31 ? v : null; };
           return { table: "accounts", op: "upsert", row: { id: uuid(), user_id: S.user.id, name: f.name.slice(0, 40), icon: "card", kind: "credito", initial_balance: round2(-debt),
-            credit_limit: lim > 0 ? round2(lim) : null, due_day: f.day || null, cut_day: null, apr: null, sort: base + i + 1, archived: false, created_at: new Date().toISOString() } };
+            credit_limit: lim > 0 ? round2(lim) : null, due_day: day("due") || f.day || null, cut_day: day("cut"), apr: null, sort: base + i + 1, archived: false, created_at: new Date().toISOString() } };
         });
         mutate(ops); closeDyn(); toast(`${ops.length} tarjeta(s) creadas`);
       });

@@ -34,6 +34,10 @@ https://hectorayon6991.github.io/Withcash/
   anteriores desde ese inicio (`carryIn` en app.js y en `atajo`).
 - Cuentas: `kind` = efectivo | debito | credito | ahorro | inversion. Las de crédito tienen `credit_limit`, `cut_day`,
   `due_day` y `apr`; su saldo negativo es la deuda. Pagar la tarjeta = transferencia; intereses = gasto en categoría «Intereses».
+  Cortes: `WCFin.cutFor` (a qué corte entra una compra), `payByFor` (fecha límite) y `statementC` (saldo al último corte − abonos
+  posteriores = lo que se paga; lo demás pasa al siguiente corte). Al registrar un gasto, «¿Con qué pagaste?» (`#payChips`) lista
+  cuentas y tarjetas; elegir una tarjeta registra el gasto en ella. «Comprometido» suma pagos fijos + deuda previa de tarjetas
+  (las compras ya están en Gastos); el «Disponible real» resta toda la deuda de tarjetas.
 - Fijos con `auto = true` se registran solos (`autoPostRecurring`); el índice único `(fixed_id, fixed_for)` evita duplicados.
 - Multi-moneda: `movements.amount` siempre en la moneda principal; si se capturó en dólares guarda `currency = 'USD'`
   y `orig_amount`. Tipo de cambio en `settings.usd_rate`.

@@ -124,3 +124,30 @@ test("equivalente mensual de suscripciones", () => {
   assert.equal(F.perMonthC({ amount: 1200, frequency: "anual" }), 10000);
   assert.equal(F.perMonthC({ amount: 100, frequency: "semanal" }), 43333);
 });
+
+test("cortes de tarjeta: a qué corte entra una compra y cuándo se paga", () => {
+  // Corte el día 10, pago el día 30
+  assert.equal(F.cutFor(10, "2026-11-05"), "2026-11-10");     // antes del corte → este mes
+  assert.equal(F.cutFor(10, "2026-11-10"), "2026-11-10");     // el mismo día del corte → este mes
+  assert.equal(F.cutFor(10, "2026-11-11"), "2026-12-10");     // después del corte → siguiente mes
+  assert.equal(F.payByFor("2026-11-10", 30), "2026-11-30");
+  assert.equal(F.payByFor("2026-11-25", 5), "2026-12-05");    // pago día 5 → mes siguiente al corte
+  assert.equal(F.cutFor(31, "2026-02-15"), "2026-02-28");     // corte 31 en febrero
+  assert.equal(F.lastCutOn(10, "2026-11-09"), "2026-10-10");
+});
+
+test("estado de cuenta: lo del corte vs lo que pasa al siguiente", () => {
+  const card = { id: "k", initial_balance: 0, cut_day: 10, due_day: 30 };
+  const mv = [
+    M("gasto", 1000, "2026-11-08", { account_id: "k" }),     // entra al corte del 10 nov
+    M("gasto", 400, "2026-11-12", { account_id: "k" }),      // entra al corte del 10 dic
+    M("transferencia", 300, "2026-11-15", { account_id: "deb", to_account_id: "k" }),   // abono después del corte
+  ];
+  const st = F.statementC(card, mv, [], [], "2026-11-20");
+  assert.equal(st.lastCut, "2026-11-10"); assert.equal(st.payBy, "2026-11-30");
+  assert.equal(st.statement, 70000);    // 1000 − 300 pagados
+  assert.equal(st.next, 40000);         // la compra del 12 va al siguiente corte
+  assert.equal(st.total, 110000);
+  assert.equal(st.nextCut, "2026-12-10"); assert.equal(st.nextPayBy, "2026-12-30");
+  assert.equal(F.statementC({ id: "x", initial_balance: 0 }, mv, [], [], "2026-11-20"), null);   // sin día de corte
+});

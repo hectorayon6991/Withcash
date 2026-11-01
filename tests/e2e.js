@@ -64,7 +64,8 @@ async function addEntry(p, { type = "gasto", amount, cat, acc, to, note, usd = f
   if (usd) await p.click("#entryCur [data-cur=USD]");
   await p.fill("#entryAmount", String(amount));
   if (cat) await p.click(`#catChips [data-cat="${cat}"]`);
-  if (acc) await p.selectOption("#entryAccount", acc);
+  if (acc && type !== "transferencia") await p.click(`#payChips [data-pay-acc="${acc}"]`);
+  else if (acc) await p.selectOption("#entryAccount", acc);
   if (to) await p.selectOption("#entryToAccount", to);
   if (note) await p.fill("#entryNote", note);
   await p.click("#entryForm button[type=submit]"); await p.waitForTimeout(350);
@@ -188,6 +189,23 @@ process.on("unhandledRejection", (e) => { check("la prueba terminó sin interrup
     const tot = await txt(T.p, "#view");
     // Nu (fixture) tiene límite 20000 y debe 0 → total crédito 33,000; debo 3,500; disponible 29,500
     check("tarjetas: total de todas (crédito / debo / disponible)", /\$33,000(?!\.\d)/.test(tot) && /\$3,500(?!\.\d)/.test(tot) && /\$29,500(?!\.\d)/.test(tot), tot.slice(0, 160));
+    // Forma de pago: elegir la tarjeta Nu (corte 10, pago 18). Hoy es 16 nov → la compra entra al corte del 10 dic y se paga el 18 dic
+    await T.p.click("#fab"); await T.p.waitForTimeout(200);
+    const chipTxt = await T.p.innerText('#payChips [data-pay-acc="a3"]');
+    await T.p.fill("#entryAmount", "750"); await T.p.click('#catChips [data-cat="c8"]'); await T.p.click('#payChips [data-pay-acc="a3"]'); await T.p.waitForTimeout(100);
+    const cutTxt = await T.p.innerText("#cardCutHint");
+    await T.p.fill("#entryNote", "Compra Nu"); await T.p.click("#entryForm button[type=submit]"); await T.p.waitForTimeout(350);
+    const nuMov = d.movements.find((m) => m.note === "Compra Nu");
+    check("forma de pago: las tarjetas aparecen con su disponible", /Nu/.test(chipTxt) && /Disponible \$20,000/.test(chipTxt), chipTxt.replace(/\s+/g, " "));
+    check("forma de pago: aviso de corte (compra después del corte → siguiente mes)", /10 de dic/.test(cutTxt) && /18 de dic/.test(cutTxt), cutTxt.replace(/\s+/g, " "));
+    check("forma de pago: la compra se registra en la tarjeta (sube deuda, método crédito)", nuMov && nuMov.account_id === "a3" && nuMov.payment_method === "credito");
+    await T.p.click("#fab"); await T.p.waitForTimeout(200);
+    const chip2 = await T.p.innerText('#payChips [data-pay-acc="a3"]');
+    await T.p.evaluate(() => document.querySelector("#entrySheet").close()); await T.p.waitForTimeout(100);
+    check("forma de pago: el disponible de la tarjeta baja solo", /Disponible \$19,250/.test(chip2), chip2.replace(/\s+/g, " "));
+    await T.p.click("#openMore"); await T.p.waitForTimeout(150); await T.p.click('[data-mod="tarjetas"]'); await T.p.waitForTimeout(250);
+    const nuBlock = await T.p.evaluate(() => [...document.querySelectorAll(".cc")].find((x) => x.innerText.includes("Nu"))?.innerText || "");
+    check("tarjetas: corte actual vs siguiente corte", /Siguiente corte/.test(nuBlock) && /\$750/.test(nuBlock), nuBlock.replace(/\s+/g, " ").slice(0, 200));
     // Compra con Klar y luego corregir «cuánto debo» a 1,200 → la deuda queda exacta, sin tocar el historial
     await addEntry(T.p, { type: "gasto", amount: 500, cat: "c8", acc: klar.id, note: "Compra Klar" });
     await T.p.click(`[data-credit="${klar.id}"]`); await T.p.waitForTimeout(250);
@@ -198,7 +216,7 @@ process.on("unhandledRejection", (e) => { check("la prueba terminó sin interrup
     // Comprometido: Klar debe 1,200 (700 previos + 500 de una compra ya registrada como gasto) y Vexi 2,500 previos
     await T.p.click('.tabbar [data-tab="inicio"]'); await T.p.waitForTimeout(300);
     const ini = await txt(T.p, "#view");
-    check("comprometido incluye la deuda de tarjetas sin contar dos veces las compras", /Tarjetas \$3,200\.00/.test(ini) && /debes \$3,700\.00 en total; \$500\.00 ya está en tus gastos/.test(ini), (ini.match(/Comprometido en pagos[^|]{0,160}/) || [""])[0]);
+    check("comprometido incluye la deuda de tarjetas sin contar dos veces las compras", /Tarjetas \$3,200\.00/.test(ini) && /debes \$4,450\.00 en total; \$1,250\.00 ya está en tus gastos/.test(ini), (ini.match(/Comprometido en pagos[^|]{0,160}/) || [""])[0]);
     check("tarjetas sin errores", !T.errs.length, T.errs.join(" | "));
     if (process.env.SHOTS) { await T.p.click("#openMore"); await T.p.waitForTimeout(150); await T.p.click('[data-mod="tarjetas"]'); await T.p.waitForTimeout(300); await T.p.screenshot({ path: process.env.SHOTS + "/tarjetas.png", fullPage: true }); }
     await T.ctx.close();

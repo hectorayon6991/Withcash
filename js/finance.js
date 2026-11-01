@@ -154,6 +154,25 @@
     return { used, limit, avail: limit ? limit - used : null, pct: limit ? used / limit : 0, interest: a.apr ? Math.round(used * Number(a.apr) / 100 / 12) : 0 };
   }
 
+  // ---------- Cortes de tarjeta ----------
+  // Fecha de corte en la que entra una compra hecha el día d (si d es después del corte del mes, entra al del mes siguiente)
+  const cutFor = (cutDay, d) => { const c = dueDate(ymOf(d), cutDay); return d <= c ? c : dueDate(addMonths(ymOf(d), 1), cutDay); };
+  // Último corte ocurrido hasta el día d (incluido)
+  const lastCutOn = (cutDay, d) => { const c = dueDate(ymOf(d), cutDay); return c <= d ? c : dueDate(addMonths(ymOf(d), -1), cutDay); };
+  // Fecha límite de pago de un corte: el primer «día de pago» posterior al corte
+  const payByFor = (cutDate, dueDay) => { const c = dueDate(ymOf(cutDate), dueDay); return c > cutDate ? c : dueDate(addMonths(ymOf(cutDate), 1), dueDay); };
+  // Estado de cuenta: lo que quedó al último corte (menos lo ya pagado después) se paga en la próxima fecha límite;
+  // las compras posteriores al corte pasan al siguiente estado de cuenta.
+  function statementC(a, movements, debts = [], debtPayments = [], today) {
+    if (!a.cut_day) return null;
+    const lastCut = lastCutOn(a.cut_day, today), nextCut = dueDate(addMonths(ymOf(lastCut), 1), a.cut_day);
+    const atCut = Math.max(0, -accountBalanceC(a, movements.filter((m) => m.date <= lastCut), debts.filter((d) => d.start_date <= lastCut), debtPayments.filter((p) => p.date <= lastCut)));
+    const paidAfter = movements.filter((m) => m.type === "transferencia" && m.to_account_id === a.id && m.date > lastCut).reduce((s, m) => s + toC(m.amount), 0);
+    const total = Math.max(0, -accountBalanceC(a, movements, debts, debtPayments));
+    const statement = Math.max(0, Math.min(total, atCut - paidAfter));
+    return { lastCut, nextCut, payBy: a.due_day ? payByFor(lastCut, a.due_day) : null, nextPayBy: a.due_day ? payByFor(nextCut, a.due_day) : null, statement, next: Math.max(0, total - statement), total };
+  }
+
   // ---------- Dinero disponible ----------
   // Saldo total (cuentas que no son crédito) − dinero reservado en metas − compromisos pendientes = disponible real.
   // Los compromisos solo incluyen ocurrencias NO pagadas: lo ya pagado está descontado del saldo y no se cuenta dos veces.
@@ -163,7 +182,8 @@
 
   const api = { toC, fromC, sumC, mulC, pad, ymOf, addMonths, daysInMonth, dueDate, dow, addDays, daysBetween, monthsBetween,
     PER_MONTH, freqOf, perMonthC, baseOccurrences, occurrences, accountBalanceC, totalsC, byCategoryC,
-    debtBalanceC, goalSavedC, goalPlan, budgetPeriod, budgetUse, budgetLevel, creditInfoC, availability };
+    debtBalanceC, goalSavedC, goalPlan, budgetPeriod, budgetUse, budgetLevel, creditInfoC, availability,
+    cutFor, lastCutOn, payByFor, statementC };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.WCFin = api;
 })(typeof self !== "undefined" ? self : this);

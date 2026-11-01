@@ -561,3 +561,20 @@ button { cursor: pointer; }
 .cc-new { border: 1px solid var(--border); border-radius: 18px; padding: 12px; margin-bottom: 10px; display: grid; gap: 4px; }
 .cc-new .row2 { margin: 6px 0 0; }
 .cm-sub { display: block; font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+/* Formas de pago (cuentas y tarjetas) y estado de cuenta */
+.pay-chips { display: flex; gap: 8px; overflow-x: auto; padding: 2px 0 6px; scrollbar-width: none; touch-action: pan-x pan-y; overscroll-behavior-x: contain; }
+.pay-chips::-webkit-scrollbar { display: none; }
+.pay-chip { flex: none; display: flex; align-items: center; gap: 8px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); border-radius: 16px; padding: 8px 12px; text-align: left; }
+.pay-chip .i { width: 20px; height: 20px; color: var(--c); }
+.pay-chip span { display: grid; line-height: 1.2; }
+.pay-chip b { font-size: 14px; font-weight: 650; }
+.pay-chip small { font-size: 11px; color: var(--text-2); }
+.pay-chip.active { border-color: var(--c); background: color-mix(in srgb, var(--c) 16%, var(--surface-2)); box-shadow: 0 0 0 1px var(--c) inset; }
+.cut-hint { font-size: 13px; background: var(--soft); border: 1px solid var(--border); border-radius: 14px; padding: 9px 12px; margin: 0 0 10px; line-height: 1.5; color: var(--text-2); }
+.cut-hint b { color: var(--text); }
+.stmt { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+.stmt > div { border: 1px dashed var(--border); border-radius: 14px; padding: 8px 10px; display: grid; gap: 1px; min-width: 0; }
+.stmt span { font-size: 11px; color: var(--text-2); }
+.stmt b { font-size: 15px; }
+.stmt small { font-size: 11px; color: var(--muted); }
