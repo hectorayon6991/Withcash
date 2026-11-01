@@ -406,17 +406,17 @@
     updateBadge();
   }
 
-  function movItem(m) {
+  function movItem(m, withDate = false) {
     const c = cat(m.category_id), a = acc(m.account_id);
     const isT = m.type === "transferencia";
     const icon = isT ? "swap" : iconKey(c?.icon, c?.name, m.type === "ingreso" ? "cash" : "box");
     const title = m.note || (isT ? "Transferencia" : c?.name || "Sin categoría");
     const sub = isT ? `${a?.name || "?"} → ${acc(m.to_account_id)?.name || "?"}`
-      : [m.note ? c?.name : null, a?.name].filter(Boolean).join(" · ");
+      : (withDate ? [fmtShort(m.date), m.note ? c?.name : a?.name] : [m.note ? c?.name : null, a?.name]).filter(Boolean).join(" · ");
     const viaAtajo = m.source === "atajo" ? `${sub ? " · " : ""}${ico("zap", "i-sm")} atajo` : "";
     const sign = m.type === "ingreso" ? "+" : m.type === "gasto" ? "−" : "";
     return `<li class="item tap" data-mov="${m.id}">
-      <div class="ico${m.type === "ingreso" ? " inc" : ""}">${ico(icon)}</div>
+      ${tile(icon, isT ? "#a1a1a8" : m.type === "ingreso" && !c ? "#3ddc97" : colorFor(m.category_id))}
       <div class="main"><div class="t">${esc(title)}</div><div class="s">${esc(sub)}${viaAtajo}</div></div>
       <div class="amt num ${m.type === "ingreso" ? "pos" : ""}">${sign}${money(Number(m.amount))}</div>
     </li>`;
@@ -443,50 +443,125 @@
       ? (days < 0 ? "¿Ya llegó?" : days === 0 ? "Llega hoy" : days === 1 ? "Mañana" : `En ${days} días`)
       : days < 0 ? `Venció hace ${-days} día${days === -1 ? "" : "s"}` : days === 0 ? "Vence hoy" : days === 1 ? "Mañana" : `En ${days} días`;
     return `<li class="item">
-      <div class="ico${inc ? " inc" : ""}">${catIco(c, inc ? "briefcase" : "calendar")}</div>
-      <div class="main"><div class="t">${esc(f.name)}${inc ? ` <span class="num pos">+${money(Number(f.amount))}</span>` : ""}</div><div class="s"><span class="badge ${cls}">${when}</span> · ${fmtDay(r.due)}</div></div>
+      ${tile(iconKey(c?.icon, c?.name, inc ? "briefcase" : "calendar"), f.category_id ? colorFor(f.category_id) : "#b69cff")}
+      <div class="main"><div class="t">${esc(f.name)} <span class="num amt-inline ${inc ? "pos" : ""}">${inc ? "+" : ""}${money(Number(f.amount))}</span></div><div class="s"><span class="badge ${cls}">${when}</span> ${fmtShort(r.due)}</div></div>
       <div class="actions"><button class="btn sm ${inc ? "" : "primary"}" data-pay="${f.id}" data-month="${r.month}">${inc ? "Recibir" : "Pagar"}</button></div>
     </li>`;
+  }
+
+  // ---------- Colores por categoría (cada gasto con su color) ----------
+  const PALETTE = ["#5eead4", "#7aa2ff", "#f0a6ea", "#ffb36b", "#b69cff", "#67d4ff", "#ffd36b", "#ff8fa3", "#9be37a", "#ff9d6b"];
+  const colorFor = (id) => { let h = 0; for (const ch of String(id || "-")) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return PALETTE[h % PALETTE.length]; };
+  const tile = (key, color, extra = "") => `<div class="tile${extra ? " " + extra : ""}" style="--c:${color}">${ico(key)}</div>`;
+  const pill = (txt, color, key = "clock") => `<span class="pill" style="--c:${color}">${ico(key, "i-sm")}${txt}</span>`;
+  // Anillo de progreso con ícono al centro
+  function ring(pct, color, key) {
+    const r = 26, c = 2 * Math.PI * r, p = Math.max(0, Math.min(1, pct || 0));
+    return `<div class="ring" style="--c:${color}"><svg viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="${r}" class="trk"/>
+      <circle cx="32" cy="32" r="${r}" class="val" stroke-dasharray="${(c * p).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 32 32)"/></svg>${ico(key)}</div>`;
+  }
+  // Línea de saldo del mes (como la de "Net worth")
+  function sparkline(ym, carry) {
+    const isCur = ym === ymOf(today()), last = isCur ? Number(today().slice(8)) : daysInMonth(ym);
+    const byDay = new Array(last + 1).fill(0);
+    for (const m of monthMovs(ym)) {
+      const d = Number(m.date.slice(8)); if (d > last) continue;
+      byDay[d] += m.type === "ingreso" ? Number(m.amount) : m.type === "gasto" ? -Number(m.amount) : 0;
+    }
+    const run = []; let acc = carry;
+    for (let d = 1; d <= last; d++) { acc += byDay[d]; run.push(acc); }
+    const N = Math.min(7, run.length), pts = [];
+    for (let i = 0; i < N; i++) pts.push(run[Math.round(i * (run.length - 1) / Math.max(1, N - 1))]);
+    if (pts.length < 2) pts.unshift(carry);
+    const W = 128, H = 46, P = 5, mn = Math.min(...pts), mx = Math.max(...pts), span = mx - mn || 1;
+    const xy = pts.map((v, i) => [P + i * (W - 2 * P) / (pts.length - 1), H - P - (v - mn) / span * (H - 2 * P)]);
+    return `<svg class="spark" viewBox="0 0 ${W} ${H}" aria-hidden="true"><polyline points="${xy.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ")}"/>
+      ${xy.map(([x, y], i) => `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3.2" class="${i === xy.length - 1 ? "end" : ""}"/>`).join("")}</svg>`;
   }
 
   function viewInicio() {
     const ym = S.ym, t = totals(ym);
     const budget = Number(S.settings.budget) || 0;
-    const isCur = ym === ymOf(today());
-    const accs = activeAccs();
+    const cur = ymOf(today()), isCur = ym === cur;
     const carry = carryIn(ym), avail = t.net + carry.amount;
     const fromLbl = carry.months === 1 ? monthName(addMonths(ym, -1)) : "meses anteriores";
-    let html = `<section class="card hero">
-      <div class="label">Disponible en ${monthName(ym)}</div>
-      <div class="big num ${avail < 0 ? "neg" : ""}">${money(avail)}</div>
-      ${carry.months ? `<p class="hint" style="margin:2px 0 8px">${carry.amount >= 0 ? "Incluye" : "Se restan"} <b class="num ${carry.amount < 0 ? "neg" : "pos"}">${money(Math.abs(carry.amount))}</b> ${carry.amount >= 0 ? "que te sobraron" : "que quedaron en contra"} de ${fromLbl}</p>` : ""}
-      <div class="stats">
-        <div class="stat"><div class="k">Ingresos</div><div class="v num pos">${money(t.inc, { short: true })}</div></div>
-        <div class="stat"><div class="k">Gastos</div><div class="v num">${money(t.exp, { short: true })}</div></div>
-        <div class="stat"><div class="k">Fijos pagados</div><div class="v num">${money(t.fixedExp, { short: true })}</div></div>
+    const left = daysInMonth(ym) - Number(today().slice(8));
+    const status = isCur ? `${left} día${left === 1 ? "" : "s"} restantes` : ym < cur ? "Mes cerrado" : "Próximo";
+
+    // 1) Disponible — tono verde agua
+    let html = `<section class="card tone" style="--t:#5eead4">
+      <div class="c-head"><span class="c-title">Disponible</span>${pill(status, "#5eead4")}</div>
+      <div class="net">
+        <div><div class="big num ${avail < 0 ? "neg" : ""}">${money(avail)}</div>
+          <div class="delta-line ${t.net < 0 ? "neg" : "pos"}">${ico(t.net < 0 ? "arrowDown" : "arrowUp", "i-sm")} ${money(Math.abs(t.net))}${carry.amount > 0 && t.net ? ` (${(t.net / carry.amount * 100).toFixed(1)}%)` : ""} <span class="muted">en ${monthName(ym)}</span></div></div>
+        ${sparkline(ym, carry.amount)}
+      </div>
+      ${carry.months ? `<p class="hint">${carry.amount >= 0 ? "Incluye" : "Se restan"} <b class="num">${money(Math.abs(carry.amount))}</b> ${carry.amount >= 0 ? "que te sobraron" : "que quedaron en contra"} de ${fromLbl}</p>` : ""}
+      <div class="split2">
+        <div><span class="k">Ingresos</span><b class="num pos">${money(t.inc)}</b></div>
+        <div><span class="k">Gastos</span><b class="num">${money(t.exp)}</b></div>
       </div>`;
     if (budget > 0) {
       const pct = t.exp / budget;
-      html += `<div class="progress ${pct > 1 ? "over" : ""}"><i style="width:${Math.min(100, pct * 100).toFixed(1)}%"></i></div>
-        <div class="progress-label"><span>Presupuesto ${Math.round(pct * 100)}%</span><span>${pct > 1 ? "Excedido por " + money(t.exp - budget) : "Quedan " + money(budget - t.exp)}</span></div>`;
+      html += `<div class="bar-soft ${pct > 1 ? "over" : ""}"><i style="width:${Math.min(100, pct * 100).toFixed(1)}%"></i></div>
+        <div class="foot"><span>${ico("target", "i-sm")} Presupuesto: ${money(budget)}</span><span>${Math.round(pct * 100)}%</span></div>`;
     }
     if (!t.inc && isCur) html += S.fixed.some((f) => f.active && isIncome(f))
-      ? `<p class="hint" style="margin:10px 0 0">${ico("bulb", "i-sm")} Cuando te llegue tu sueldo, tócale <b>Recibir</b> para contarlo.</p>`
-      : `<p class="hint" style="margin:10px 0 0">${ico("bulb", "i-sm")} Registra tu sueldo con <b>+ → Ingreso</b>, o agrégalo en <b>Fijos</b> como ingreso fijo.</p>`;
+      ? `<p class="hint" style="margin:12px 0 0">${ico("bulb", "i-sm")} Cuando te llegue tu sueldo, tócale <b>Recibir</b> para contarlo.</p>`
+      : `<p class="hint" style="margin:12px 0 0">${ico("bulb", "i-sm")} Registra tu sueldo con <b>+ → Ingreso</b>, o agrégalo en <b>Fijos</b> como ingreso fijo.</p>`;
     html += `</section>`;
 
+    // 2) Cuentas
+    const accs = activeAccs();
     if (accs.length) {
       html += `<div class="acc-scroll">${accs.map((a) => {
-        const b = accountBalance(a);
-        return `<div class="acc-card"><div class="n">${accIco(a)}${esc(a.name)}</div><div class="v num ${b < 0 ? "neg" : ""}">${money(b)}</div></div>`;
+        const b = accountBalance(a), c = colorFor(a.id);
+        return `<div class="acc-card">${tile(iconKey(a.icon, a.name, "wallet"), c, "sm")}<div><div class="n">${esc(a.name)}</div><div class="v num ${b < 0 ? "neg" : ""}">${money(b)}</div></div></div>`;
       }).join("")}</div>`;
     }
 
-    const budgets = S.fixed.filter((f) => f.active && isBudget(f));
-    if (budgets.length && isCur) html += `<section class="card"><h2>Presupuestos <button class="link" data-goto="fijos">Editar</button></h2><ul class="list">${budgets.map(budgetItem).join("")}</ul></section>`;
+    // 3) Flujo de efectivo — tono azul (6 meses: ingresos vs gastos)
+    const months = Array.from({ length: 6 }, (_, i) => addMonths(ym, i - 5));
+    const flows = months.map((m) => totals(m));
+    const mxf = Math.max(1, ...flows.map((f) => Math.max(f.inc, f.exp)));
+    html += `<section class="card tone" style="--t:#7aa2ff">
+      <div class="c-head"><span class="c-title">Flujo de efectivo</span><button class="chev" data-goto="balance" aria-label="Ver balance">${ico("chevR")}</button></div>
+      <div class="flow">${months.map((m, i) => `<div class="fcol ${m === ym ? "cur" : ""}">
+        <div class="fbars"><i class="in" style="height:${(flows[i].inc / mxf * 100).toFixed(1)}%"></i><i class="out" style="height:${(flows[i].exp / mxf * 100).toFixed(1)}%"></i></div>
+        <span>${monthName(m, true)}</span></div>`).join("")}</div>
+      <div class="legend2"><span><i class="in"></i>Ingresos</span><span><i class="out"></i>Gastos</span></div>
+    </section>`;
 
+    // 4) Presupuestos — anillos (rojo pasado, ámbar casi, verde bien)
+    const budgets = S.fixed.filter((f) => f.active && isBudget(f));
+    if (budgets.length && isCur) {
+      html += `<section class="card tone" style="--t:#ffb36b">
+        <div class="c-head"><span class="c-title">Presupuestos</span><button class="chev" data-goto="fijos" aria-label="Ver fijos">${ico("chevR")}</button></div>
+        <div class="rings">${budgets.map((f) => {
+          const u = budgetUse(f), c = cat(f.category_id);
+          const col = u.pct > 1 ? "#ff6b6b" : u.pct >= 0.8 ? "#ffb36b" : "#3ddc97";
+          return `<div class="rcell tap" data-edit-fixed="${f.id}">${ring(u.pct > 1 ? 1 : 1 - u.pct, col, iconKey(c?.icon, c?.name, "target"))}
+            <b class="num">${money(Math.abs(u.left))}</b><span>${u.left < 0 ? "excedido" : "disponible"}</span><em>${esc(f.name)}</em></div>`;
+        }).join("")}</div>
+      </section>`;
+    }
+
+    // 5) ¿En qué gastas? — un círculo de color por categoría
+    const ct = Object.entries(catTotals(ym)).sort((a, b) => b[1] - a[1]);
+    if (ct.length) {
+      html += `<section class="card tone" style="--t:#f0a6ea">
+        <div class="c-head"><span class="c-title">¿En qué gastas?</span><button class="chev" data-goto="balance" aria-label="Ver balance">${ico("chevR")}</button></div>
+        <div class="rings">${ct.map(([id, v]) => {
+          const c = cat(id) || { icon: "box", name: "Sin categoría" }, col = colorFor(id);
+          return `<div class="rcell tap" data-catgo="${id}">${ring(v / t.exp, col, iconKey(c.icon, c.name))}
+            <b class="num">${money(v)}</b><span>${Math.round(v / t.exp * 100)}%</span><em>${esc(c.name)}</em></div>`;
+        }).join("")}</div>
+      </section>`;
+    }
+
+    // 6) Próximos pagos — tono ámbar con píldoras de días
     const up = upcomingList(10);
-    html += `<section class="card"><h2>Próximos pagos <button class="link" data-goto="fijos">Ver todos</button></h2>`;
+    html += `<section class="card tone" style="--t:#b69cff"><div class="c-head"><span class="c-title">Próximos pagos</span><button class="link" data-goto="fijos">Ver todos</button></div>`;
     if (!S.fixed.some((f) => f.active && !isBudget(f))) {
       html += `<div class="empty"><div class="e">${ico("calendar")}</div>Agrega tus pagos fijos (tarjetas, luz, colegio…) o tu sueldo para recordarlos.<br><br><button class="btn primary" data-new-fixed>Agregar fijo</button></div>`;
     } else if (!up.soon.length) {
@@ -496,9 +571,10 @@
     }
     html += `</section>`;
 
+    // 7) Últimos movimientos
     const recent = monthMovs(ym).slice(0, 6);
-    html += `<section class="card"><h2>Últimos movimientos <button class="link" data-goto="movimientos">Ver todos</button></h2>`;
-    html += recent.length ? `<ul class="list">${recent.map(movItem).join("")}</ul>`
+    html += `<section class="card"><div class="c-head"><span class="c-title">Últimos movimientos</span><button class="link" data-goto="movimientos">Ver todos ${ico("chevR", "i-sm")}</button></div>`;
+    html += recent.length ? `<ul class="list">${recent.map((m) => movItem(m, true)).join("")}</ul>`
       : `<div class="empty"><div class="e">${ico("receipt")}</div>Aún no hay movimientos este mes.<br>Toca <b>+</b> para agregar tu primer gasto.</div>`;
     html += `</section>`;
     return html;
@@ -1233,12 +1309,13 @@
   document.addEventListener("touchmove", (e) => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
   // (el doble toque ya no hace zoom gracias a touch-action en el CSS)
   $("#view").addEventListener("click", (e) => {
-    const t = e.target.closest("[data-mov],[data-mov-open],[data-pay],[data-goto],[data-new-fixed],[data-edit-fixed],[data-filter]");
+    const t = e.target.closest("[data-mov],[data-mov-open],[data-pay],[data-goto],[data-new-fixed],[data-edit-fixed],[data-filter],[data-catgo]");
     if (!t) return;
     if (t.dataset.pay) payFixed(t.dataset.pay, t.dataset.month);
     else if (t.dataset.movOpen) openEntry({ id: t.dataset.movOpen });
     else if (t.dataset.mov) openEntry({ id: t.dataset.mov });
     else if (t.dataset.goto) goTab(t.dataset.goto);
+    else if (t.dataset.catgo) { S.movFilter = t.dataset.catgo === "-" ? "todos" : t.dataset.catgo; goTab("movimientos"); }
     else if (t.hasAttribute("data-new-fixed")) openFixed();
     else if (t.dataset.editFixed) openFixed(t.dataset.editFixed);
     else if (t.dataset.filter) { S.movFilter = t.dataset.filter; render(); }
