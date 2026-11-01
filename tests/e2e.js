@@ -432,6 +432,27 @@ process.on("unhandledRejection", (e) => { check("la prueba terminó sin interrup
     await R.ctx.close();
   }
 
+  // ---------- Modo avión: abrir sin señal, registrar, cerrar y reabrir, y enviar al volver la señal ----------
+  {
+    const d = fixtures(), R = await boot(browser, { data: d }), P = R.p;
+    await P.reload(); await P.waitForSelector("#appShell:not([hidden])"); await P.waitForTimeout(1200);   // el service worker ya guardó la app
+    await R.ctx.setOffline(true); R.server.fail = true;
+    await P.reload().catch(() => {});
+    const opens = await P.waitForSelector("#appShell:not([hidden])", { timeout: 8000 }).then(() => true, () => false);
+    await P.waitForTimeout(800);
+    await addEntry(P, { type: "gasto", amount: 250, cat: "c1", acc: "a2", note: "Modo avion" });
+    await P.click('.tabbar [data-tab="fijos"]'); await P.waitForTimeout(300); await P.click('[data-pay-actions="f1"]'); await P.waitForTimeout(250);
+    await P.click('#dynBody [data-a="pay"]'); await P.waitForTimeout(250); await P.click("#entryForm button[type=submit]"); await P.waitForTimeout(400);
+    await P.reload().catch(() => {}); await P.waitForSelector("#appShell:not([hidden])", { timeout: 8000 }).catch(() => {}); await P.waitForTimeout(800);
+    await P.click('.tabbar [data-tab="movimientos"]'); await P.waitForTimeout(300);
+    const kept = /Modo avion/.test(await txt(P, "#view")), before = d.movements.filter((m) => m.note === "Modo avion" || m.fixed_id === "f1").length;
+    await R.ctx.setOffline(false); R.server.fail = false; await P.evaluate(() => window.dispatchEvent(new Event("online")));
+    await P.waitForFunction(() => document.querySelector("#syncDot")?.classList.contains("ok"), null, { timeout: 25000 }).catch(() => {});
+    const g = d.movements.filter((m) => m.note === "Modo avion").length, pf = d.movements.filter((m) => m.fixed_id === "f1").length;
+    check("modo avión: abre sin señal, guarda gasto y pago, sobrevive a cerrar la app y se envía al volver la señal", opens && kept && before === 0 && g === 1 && pf === 1, `abre ${opens}, se conserva ${kept}, antes ${before}, después ${g}/${pf}`);
+    await R.ctx.close();
+  }
+
   // ---------- 19-20. Dos dispositivos sobre los mismos datos ----------
   {
     const shared = fixtures();
