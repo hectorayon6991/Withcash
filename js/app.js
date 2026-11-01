@@ -38,7 +38,7 @@
     ["shirt","Ropa","gasto"],["child","Hija","gasto"],["tv","Suscripciones","gasto"],["gift","Regalos","gasto"],["box","Otros","gasto"],
     ["briefcase","Sueldo","ingreso"],["cash","Extra","ingreso"],["tag","Ventas","ingreso"],["refund","Reembolso","ingreso"],["box","Otros ingresos","ingreso"],
   ];
-  const DEFAULT_ACCS = [["cash","Efectivo"],["bank","Débito"],["card","Crédito"]];
+  const DEFAULT_ACCS = [["cash","Efectivo","efectivo"],["bank","Débito","debito"],["card","Crédito","credito"]];
   const TEMPLATES = [
     { name: "Sueldo", kind: "ingreso", cat: "Sueldo", icon: "briefcase", frequency: "quincenal", day: 15, day2: 31 },
     { name: "Gasolina", kind: "presupuesto", cat: "Gasolina", icon: "fuel", frequency: "semanal", weekday: 1 },
@@ -52,6 +52,12 @@
     { name: "Renta", kind: "servicio", cat: "Casa", icon: "home" },
     { name: "Netflix", kind: "suscripcion", cat: "Suscripciones", icon: "tv" },
     { name: "Spotify", kind: "suscripcion", cat: "Suscripciones", icon: "music" },
+    { name: "iCloud", kind: "suscripcion", cat: "Suscripciones", icon: "phone" },
+    { name: "Apple Music", kind: "suscripcion", cat: "Suscripciones", icon: "music" },
+    { name: "YouTube Premium", kind: "suscripcion", cat: "Suscripciones", icon: "tv" },
+    { name: "Amazon Prime", kind: "suscripcion", cat: "Suscripciones", icon: "box" },
+    { name: "Disney+", kind: "suscripcion", cat: "Suscripciones", icon: "film" },
+    { name: "ChatGPT", kind: "suscripcion", cat: "Suscripciones", icon: "star" },
     { name: "Gimnasio", kind: "suscripcion", cat: "Salud", icon: "dumbbell" },
     { name: "Préstamo auto", kind: "deuda", cat: "Transporte", icon: "car" },
   ];
@@ -307,7 +313,9 @@
         try {
           res = op.op === "delete"
             ? await sb.from(op.table).delete().eq("id", op.id)
-            : await sb.from(op.table).upsert(op.row, { onConflict: op.table === "settings" ? "user_id" : "id" });
+            : await sb.from(op.table).upsert(op.row, op.onConflict
+              ? { onConflict: op.onConflict, ignoreDuplicates: true }
+              : { onConflict: op.table === "settings" ? "user_id" : "id" });
         } catch (e) { res = { error: e }; }
         if (res.error) {
           if (isNetErr(res.error)) break;
@@ -354,11 +362,31 @@
     for (const op of ls.get(outboxKey(), [])) applyLocal(op);
     if (!S.accounts.length && !S.categories.length) await seedDefaults(!st.data);
     saveCache();
+    autoPostRecurring();
+  }
+  // Fijos con «Registrar automáticamente»: anota las fechas que ya llegaron y no están registradas.
+  // La base de datos tiene un índice único (fixed_id, fixed_for), así que nunca se duplican.
+  function autoPostRecurring() {
+    const t = today(); let n = 0;
+    for (const f of S.fixed.filter((x) => x.active && x.auto && !isBudget(x))) {
+      const dp = debtProgress(f); let k = 0;
+      for (const o of pendingOcc(f).filter((x) => x.due <= t)) {
+        if (dp && dp.paid + k >= dp.total) break;
+        k++;
+        mutate({ table: "movements", op: "upsert", onConflict: "fixed_id,fixed_for", row: {
+          id: uuid(), user_id: S.user.id, type: isIncome(f) ? "ingreso" : "gasto", amount: Number(f.amount), date: o.due,
+          note: f.name, category_id: f.category_id, account_id: f.account_id, to_account_id: null,
+          fixed_id: f.id, fixed_for: o.key, source: "app", created_at: new Date().toISOString(),
+        } });
+        n++;
+      }
+    }
+    if (n) toast(n === 1 ? "Se registró 1 movimiento automático" : `Se registraron ${n} movimientos automáticos`);
   }
   async function seedDefaults(withSettings = true) {
     const uid = S.user.id;
     const cats = DEFAULT_CATS.map(([icon, name, kind], i) => ({ id: uuid(), user_id: uid, icon, name, kind, sort: i, archived: false }));
-    const accs = DEFAULT_ACCS.map(([icon, name], i) => ({ id: uuid(), user_id: uid, icon, name, sort: i, initial_balance: 0, archived: false }));
+    const accs = DEFAULT_ACCS.map(([icon, name, kind], i) => ({ id: uuid(), user_id: uid, icon, name, kind, sort: i, initial_balance: 0, archived: false }));
     if (withSettings) mutate({ table: "settings", op: "upsert", row: { user_id: uid, currency: "MXN", start_month: ymOf(today()), timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "America/Mexico_City" } });
     mutate({ table: "categories", op: "upsert", row: cats });
     mutate({ table: "accounts", op: "upsert", row: accs });
@@ -418,7 +446,7 @@
     return `<li class="item tap" data-mov="${m.id}">
       ${tile(icon, isT ? "#a1a1a8" : m.type === "ingreso" && !c ? "#3ddc97" : colorFor(m.category_id))}
       <div class="main"><div class="t">${esc(title)}</div><div class="s">${esc(sub)}${viaAtajo}</div></div>
-      <div class="amt num ${m.type === "ingreso" ? "pos" : ""}">${sign}${money(Number(m.amount))}</div>
+      <div class="amt num ${m.type === "ingreso" ? "pos" : ""}">${sign}${money(Number(m.amount))}${m.currency === "USD" && m.orig_amount ? `<small class="orig">US$${Number(m.orig_amount).toFixed(2)}</small>` : ""}</div>
     </li>`;
   }
 
@@ -448,6 +476,83 @@
       <div class="actions"><button class="btn sm ${inc ? "" : "primary"}" data-pay="${f.id}" data-month="${r.month}">${inc ? "Recibir" : "Pagar"}</button></div>
     </li>`;
   }
+
+  // ---------- Cuentas, crédito y patrimonio ----------
+  const ACC_KIND = { efectivo: "Efectivo", debito: "Débito / banco", credito: "Tarjeta de crédito", ahorro: "Ahorro", inversion: "Inversión" };
+  const isCredit = (a) => a?.kind === "credito";
+  // Próxima fecha (hoy o después) de un día del mes
+  const nextDay = (day) => { const t = today(), ym = ymOf(t); const d = dueDate(ym, day); return d >= t ? d : dueDate(addMonths(ym, 1), day); };
+  function creditInfo(a) {
+    const used = Math.max(0, -accountBalance(a)), limit = Number(a.credit_limit) || 0;
+    const due = a.due_day ? nextDay(a.due_day) : null, cut = a.cut_day ? nextDay(a.cut_day) : null;
+    const interest = a.apr ? used * Number(a.apr) / 100 / 12 : 0;   // interés estimado si no se paga completo
+    const yr = today().slice(0, 4);
+    const paidInterest = S.movements.filter((m) => m.type === "gasto" && m.account_id === a.id && m.date.startsWith(yr) && /inter[eé]s/i.test(cat(m.category_id)?.name || m.note || ""))
+      .reduce((s, m) => s + Number(m.amount), 0);
+    return { used, limit, avail: limit ? limit - used : null, pct: limit ? used / limit : 0, due, cut, dueDays: due ? daysBetween(today(), due) : null, interest, paidInterest };
+  }
+  function creditSummary() {
+    const cards = activeAccs().filter(isCredit).map((a) => ({ a, ...creditInfo(a) }));
+    const loans = S.fixed.filter((f) => f.active && f.kind === "deuda").map((f) => ({ f, d: debtProgress(f) })).filter((x) => x.d && x.d.left > 0);
+    const limit = cards.reduce((s, c) => s + c.limit, 0), used = cards.reduce((s, c) => s + c.used, 0);
+    const loansLeft = loans.reduce((s, x) => s + x.d.left, 0);
+    return { cards, loans, limit, used, avail: limit - used, loansLeft, debt: used + loansLeft };
+  }
+  function netWorth() {
+    const assets = activeAccs().filter((a) => !isCredit(a)).reduce((s, a) => s + accountBalance(a), 0);
+    const cs = creditSummary();
+    return { assets, debts: cs.debt, net: assets - cs.debt };
+  }
+  // Lo que falta pagar (comprometido) y cobrar este mes, incluidos atrasados
+  function commitments(ym) {
+    let bills = 0, incomes = 0;
+    if (ym !== ymOf(today())) return { bills, incomes };
+    for (const f of S.fixed.filter((x) => x.active && !isBudget(x))) {
+      const n = pendingOcc(f).filter((o) => o.due <= dueDate(ym, 31)).length;
+      if (isIncome(f)) incomes += n * Number(f.amount); else bills += n * Number(f.amount);
+    }
+    return { bills, incomes };
+  }
+  const subsTotals = () => { const subs = S.fixed.filter((f) => f.active && f.kind === "suscripcion"); const m = subs.reduce((s, f) => s + perMonth(f), 0); return { subs, month: m, year: m * 12 }; };
+
+  // ---------- Alertas inteligentes ----------
+  function buildAlerts() {
+    const out = [], t = today(), ym = ymOf(t);
+    if (S.ym !== ym) return out;
+    const day = Number(t.slice(8)), dim = daysInMonth(ym);
+    // Pagos que vencen (hoy, mañana, atrasados)
+    for (const r of upcomingList(3).soon) {
+      if (isIncome(r.f)) { if (r.days <= 0) out.push({ lvl: "info", icon: "briefcase", txt: `${r.days < 0 ? "¿Ya te llegó" : "Hoy llega"} <b>${esc(r.f.name)}</b>${r.days < 0 ? ` del ${fmtShort(r.due)}?` : ""} (${money(Number(r.f.amount))})` }); continue; }
+      const when = r.days < 0 ? `venció hace ${-r.days} día${r.days === -1 ? "" : "s"}` : r.days === 0 ? "vence <b>hoy</b>" : r.days === 1 ? "vence <b>mañana</b>" : `vence en ${r.days} días`;
+      out.push({ lvl: r.days <= 0 ? "bad" : "warn", icon: "bell", txt: `Tu pago de <b>${esc(r.f.name)}</b> ${when} (${money(Number(r.f.amount))})` });
+    }
+    // Tarjetas: fecha límite cercana y uso alto
+    for (const c of creditSummary().cards) {
+      if (c.used > 0 && c.dueDays != null && c.dueDays <= 5) out.push({ lvl: c.dueDays <= 1 ? "bad" : "warn", icon: "card", txt: `Fecha límite de <b>${esc(c.a.name)}</b> ${c.dueDays === 0 ? "es hoy" : c.dueDays === 1 ? "es mañana" : `en ${c.dueDays} días`}: debes ${money(c.used)}` });
+      if (c.limit && c.pct >= 0.8) out.push({ lvl: c.pct >= 1 ? "bad" : "warn", icon: "card", txt: `Usas el <b>${Math.round(c.pct * 100)}%</b> del crédito de ${esc(c.a.name)}` });
+    }
+    // Presupuestos
+    for (const f of S.fixed.filter((x) => x.active && isBudget(x))) {
+      const u = budgetUse(f);
+      if (u.pct >= 1) out.push({ lvl: "bad", icon: "target", txt: `Te pasaste <b>${money(-u.left)}</b> del presupuesto de ${esc(f.name)}` });
+      else if (u.pct >= 0.85) out.push({ lvl: "warn", icon: "target", txt: `Ya utilizaste el <b>${Math.round(u.pct * 100)}%</b> de tu presupuesto de ${esc(f.name)}` });
+    }
+    // Categorías: este mes vs mismos días del mes pasado
+    const prev = addMonths(ym, -1), cutPrev = dueDate(prev, day);
+    const sumBy = (from, to) => { const o = {}; for (const m of S.movements) if (m.type === "gasto" && m.date >= from && m.date <= to) o[m.category_id || "-"] = (o[m.category_id || "-"] || 0) + Number(m.amount); return o; };
+    const now = sumBy(`${ym}-01`, t), before = sumBy(`${prev}-01`, cutPrev);
+    const small = S.settings.currency === "MXN" ? 500 : 30;
+    const ups = Object.entries(now).map(([id, v]) => [id, v - (before[id] || 0), before[id] || 0]).filter(([, d, b]) => b > 0 && d >= small && d / b >= 0.2).sort((a, b) => b[1] - a[1]).slice(0, 2);
+    for (const [id, d] of ups) out.push({ lvl: "warn", icon: "trendUp", txt: `Has gastado <b>${money(d)}</b> más en ${esc(cat(id)?.name || "sin categoría")} que el mes pasado (mismos días)` });
+    // Proyección de fin de mes
+    if (day >= 3 && day < dim) {
+      const tt = totals(ym), carry = carryIn(ym).amount, cm = commitments(ym);
+      const varRate = tt.varExp / day, projected = carry + tt.net + cm.incomes - cm.bills - varRate * (dim - day);
+      out.push({ lvl: projected < 0 ? "bad" : "good", icon: projected < 0 ? "trendDown" : "trendUp", txt: `Si mantienes este ritmo, terminarás el mes con <b class="${projected < 0 ? "neg" : "pos"}">${money(projected)}</b> disponibles` });
+    }
+    return out;
+  }
+  const ALERT_COLOR = { bad: "#ff6b6b", warn: "#ffb36b", good: "#3ddc97", info: "#7aa2ff" };
 
   // ---------- Colores por categoría (cada gasto con su color) ----------
   const PALETTE = ["#5eead4", "#7aa2ff", "#f0a6ea", "#ffb36b", "#b69cff", "#67d4ff", "#ffd36b", "#ff8fa3", "#9be37a", "#ff9d6b"];
@@ -501,6 +606,12 @@
         <div><span class="k">Ingresos</span><b class="num pos">${money(t.inc)}</b></div>
         <div><span class="k">Gastos</span><b class="num">${money(t.exp)}</b></div>
       </div>`;
+    // Saldo real: lo comprometido para pagos del mes y lo que queda libre
+    const cm = commitments(ym);
+    if (cm.bills || cm.incomes) html += `<div class="split2 thin">
+        <div><span class="k">Comprometido en pagos</span><b class="num neg">${money(cm.bills)}</b></div>
+        <div><span class="k">Libre después de pagos</span><b class="num ${avail - cm.bills < 0 ? "neg" : ""}">${money(avail - cm.bills)}</b></div>
+      </div>${cm.incomes ? `<p class="hint" style="margin:8px 0 0">${ico("briefcase", "i-sm")} Por recibir este mes: <b class="num pos">${money(cm.incomes)}</b></p>` : ""}`;
     if (budget > 0) {
       const pct = t.exp / budget;
       html += `<div class="bar-soft ${pct > 1 ? "over" : ""}"><i style="width:${Math.min(100, pct * 100).toFixed(1)}%"></i></div>
@@ -511,6 +622,11 @@
       : `<p class="hint" style="margin:12px 0 0">${ico("bulb", "i-sm")} Registra tu sueldo con <b>+ → Ingreso</b>, o agrégalo en <b>Fijos</b> como ingreso fijo.</p>`;
     html += `</section>`;
 
+    // Alertas inteligentes
+    const alerts = buildAlerts();
+    if (alerts.length) html += `<section class="card tone" style="--t:#ffb36b"><div class="c-head"><span class="c-title">Alertas</span>${pill(String(alerts.length), "#ffb36b", "bell")}</div>
+      <ul class="alerts">${alerts.map((a) => `<li>${tile(a.icon, ALERT_COLOR[a.lvl], "sm")}<span>${a.txt}</span></li>`).join("")}</ul></section>`;
+
     // 2) Cuentas
     const accs = activeAccs();
     if (accs.length) {
@@ -518,6 +634,29 @@
         const b = accountBalance(a), c = colorFor(a.id);
         return `<div class="acc-card">${tile(iconKey(a.icon, a.name, "wallet"), c, "sm")}<div><div class="n">${esc(a.name)}</div><div class="v num ${b < 0 ? "neg" : ""}">${money(b)}</div></div></div>`;
       }).join("")}</div>`;
+    }
+
+    // Crédito y deudas
+    const cs = creditSummary();
+    if (cs.cards.length || cs.loans.length) {
+      html += `<section class="card tone" style="--t:#ff8fa3">
+        <div class="c-head"><span class="c-title">Crédito y deudas</span><button class="chev" data-credit aria-label="Ver tarjetas">${ico("chevR")}</button></div>
+        <div class="split3">
+          <div><span class="k">Crédito total</span><b class="num">${money(cs.limit)}</b></div>
+          <div><span class="k">Disponible</span><b class="num pos">${money(cs.avail)}</b></div>
+          <div><span class="k">Deuda total</span><b class="num neg">${money(cs.debt)}</b></div>
+        </div>
+        ${cs.limit ? `<div class="bar-soft ${cs.used / cs.limit >= 0.8 ? "over" : ""}"><i style="width:${Math.min(100, cs.used / cs.limit * 100).toFixed(1)}%"></i></div>
+          <div class="foot"><span>Utilizado ${money(cs.used)}</span><span>${Math.round(cs.used / cs.limit * 100)}%</span></div>` : ""}
+        <ul class="list" style="margin-top:8px">${cs.cards.map((c) => `<li class="item tap" data-credit="${c.a.id}">
+          ${tile(iconKey(c.a.icon, c.a.name, "card"), colorFor(c.a.id))}
+          <div class="main"><div class="t">${esc(c.a.name)} <span class="amt-inline">${money(c.used)}${c.limit ? ` de ${money(c.limit)}` : ""}</span></div>
+            <div class="s">${c.due ? `<span class="badge ${c.dueDays <= 1 && c.used > 0 ? "bad" : c.dueDays <= 5 && c.used > 0 ? "warn" : ""}">Pagar antes del ${fmtShort(c.due)}</span>` : "Agrega su fecha de pago"}${c.cut ? ` · corte ${fmtShort(c.cut)}` : ""}</div></div>
+        </li>`).join("")}${cs.loans.map((x) => `<li class="item tap" data-edit-fixed="${x.f.id}">
+          ${tile(iconKey(cat(x.f.category_id)?.icon, x.f.name, "car"), colorFor(x.f.id))}
+          <div class="main"><div class="t">${esc(x.f.name)} <span class="amt-inline">${money(x.d.left)}</span></div><div class="s">${x.d.paid}/${x.d.total} cuotas pagadas</div></div>
+        </li>`).join("")}</ul>
+      </section>`;
     }
 
     // 3) Flujo de efectivo — tono azul (6 meses: ingresos vs gastos)
@@ -664,7 +803,8 @@
     for (const kind of ["tarjeta", "servicio", "suscripcion", "deuda"]) {
       const items = list.filter((f) => f.kind === kind).sort((a, b) => firstDue(a).localeCompare(firstDue(b)));
       if (!items.length) continue;
-      html += `<section class="card"><h2>${KIND_LABEL[kind]}</h2><ul class="list">${items.map(item).join("")}</ul></section>`;
+      const extra = kind === "suscripcion" ? (() => { const st = subsTotals(); return ` <span class="hint num">${money(st.month)}/mes · ${money(st.year)}/año</span>`; })() : "";
+      html += `<section class="card"><h2>${KIND_LABEL[kind]}${extra}</h2><ul class="list">${items.map(item).join("")}</ul></section>`;
     }
     html += `<button class="btn block" data-new-fixed>+ Agregar fijo</button>`;
     return html;
@@ -674,66 +814,92 @@
     const ym = S.ym, prevYm = addMonths(ym, -1);
     const t = totals(ym), tp = totals(prevYm);
     const rate = t.inc > 0 ? t.net / t.inc : null;
-    let html = `<section class="card hero">
-      <div class="label">${t.net >= 0 ? "Ahorro" : "Déficit"} de ${monthName(ym)}</div>
-      <div class="big num ${t.net < 0 ? "neg" : "pos"}">${money(t.net)}</div>
-      <div class="stats">
-        <div class="stat"><div class="k">Ingresos</div><div class="v num">${money(t.inc, { short: true })}</div></div>
-        <div class="stat"><div class="k">Gastos</div><div class="v num">${money(t.exp, { short: true })}</div></div>
-        <div class="stat"><div class="k">% ahorrado</div><div class="v num">${rate == null ? "—" : Math.round(rate * 100) + "%"}</div></div>
-      </div>`;
+    const pct = (a, b) => (b ? Math.round((a - b) / Math.abs(b) * 100) : null);
+    const dTag = (a, b, goodUp) => { const d = pct(a, b); if (d == null || d === 0) return ""; const good = goodUp ? d > 0 : d < 0;
+      return `<span class="dchip ${good ? "pos" : "neg"}">${ico(d > 0 ? "arrowUp" : "arrowDown", "i-sm")}${Math.abs(d)}%</span>`; };
+
+    // Resumen del mes
+    let html = `<section class="card tone" style="--t:#3ddc97">
+      <div class="c-head"><span class="c-title">${t.net >= 0 ? "Ahorro" : "Déficit"} de ${monthName(ym)}</span>${pill(rate == null ? "Sin ingresos" : `${Math.round(rate * 100)}% ahorrado`, t.net >= 0 ? "#3ddc97" : "#ff6b6b", "piggy")}</div>
+      <div class="net"><div class="big num ${t.net < 0 ? "neg" : ""}">${money(t.net)}</div></div>
+      <div class="split2"><div><span class="k">Ingresos ${dTag(t.inc, tp.inc, true)}</span><b class="num pos">${money(t.inc)}</b></div>
+        <div><span class="k">Gastos ${dTag(t.exp, tp.exp, false)}</span><b class="num">${money(t.exp)}</b></div></div>`;
     if (t.exp > 0) {
       const fp = t.fixedExp / t.exp;
       html += `<div class="split" role="img" aria-label="Fijos ${Math.round(fp * 100)}%, variables ${Math.round((1 - fp) * 100)}%">
         ${t.fixedExp ? `<i class="fx" style="width:${fp * 100}%"></i>` : ""}${t.varExp ? `<i class="vr" style="width:${(1 - fp) * 100}%"></i>` : ""}</div>
         <div class="legend"><span class="l-fx">Fijos ${money(t.fixedExp)}</span><span class="l-vr">Variables ${money(t.varExp)}</span></div>`;
     }
-    html += `</section>`;
+    html += `<p class="hint" style="margin:10px 0 0">Flechas: comparado con ${monthName(prevYm)}.</p></section>`;
 
-    // Consejos
-    const tips = buildTips(ym, t, tp);
-    if (tips.length) html += `<section class="card"><h2>Cómo ahorrar más</h2><ul class="tips">${tips.map(([e, s]) => `<li><span class="e">${ico(e)}</span><span>${s}</span></li>`).join("")}</ul></section>`;
+    // Patrimonio neto
+    const nw = netWorth(), accs = activeAccs();
+    html += `<section class="card tone" style="--t:#7aa2ff">
+      <div class="c-head"><span class="c-title">Patrimonio neto</span>${pill("hoy", "#7aa2ff", "clock")}</div>
+      <div class="big num ${nw.net < 0 ? "neg" : ""}" style="font-size:32px;font-weight:700;letter-spacing:-1px">${money(nw.net)}</div>
+      <div class="split2"><div><span class="k">Tengo (cuentas)</span><b class="num pos">${money(nw.assets)}</b></div><div><span class="k">Debo (crédito y préstamos)</span><b class="num neg">${money(nw.debts)}</b></div></div>
+      <ul class="list" style="margin-top:8px">${accs.map((a) => { const b = accountBalance(a);
+        return `<li class="item tap" data-credit="${a.id}">${tile(iconKey(a.icon, a.name, "wallet"), colorFor(a.id), "sm")}<div class="main"><div class="t">${esc(a.name)}</div><div class="s">${ACC_KIND[a.kind] || ""}</div></div><div class="amt num ${b < 0 ? "neg" : ""}">${money(b)}</div></li>`; }).join("")}</ul>
+    </section>`;
 
-    // Por categoría
+    // Ingresos contra gastos (12 meses)
+    const m12 = Array.from({ length: 12 }, (_, i) => addMonths(ym, i - 11)), f12 = m12.map((m) => totals(m));
+    const mx = Math.max(1, ...f12.map((f) => Math.max(f.inc, f.exp)));
+    html += `<section class="card tone" style="--t:#67d4ff">
+      <div class="c-head"><span class="c-title">Ingresos contra gastos</span>${pill("12 meses", "#67d4ff", "chart")}</div>
+      <div class="flow f12">${m12.map((m, i) => `<div class="fcol ${m === ym ? "cur" : ""}" title="${monthName(m)}: +${money(f12[i].inc)} / −${money(f12[i].exp)}">
+        <div class="fbars"><i class="in" style="height:${(f12[i].inc / mx * 100).toFixed(1)}%"></i><i class="out" style="height:${(f12[i].exp / mx * 100).toFixed(1)}%"></i></div>
+        <span>${monthName(m, true).slice(0, 1)}</span></div>`).join("")}</div>
+      <div class="legend2"><span><i class="in"></i>Ingresos</span><span><i class="out"></i>Gastos</span></div>
+    </section>`;
+
+    // Comparación mensual y anual
+    const yr = ym.slice(0, 4), ly = String(Number(yr) - 1);
+    const ysum = (y, upTo) => { const a = { inc: 0, exp: 0 }; for (let i = 1; i <= upTo; i++) { const x = totals(`${y}-${pad(i)}`); a.inc += x.inc; a.exp += x.exp; } return a; };
+    const upTo = Number(ym.slice(5)), Y = ysum(yr, upTo), L = ysum(ly, upTo);
+    const row = (lbl, a, b, goodUp) => `<tr><td>${lbl}</td><td class="num">${money(b)}</td><td class="num"><b>${money(a)}</b></td><td>${dTag(a, b, goodUp)}</td></tr>`;
+    html += `<section class="card tone" style="--t:#b69cff">
+      <div class="c-head"><span class="c-title">Comparación mensual</span></div>
+      <table class="cmp"><thead><tr><th></th><th>${monthName(prevYm, true)}</th><th>${monthName(ym, true)}</th><th></th></tr></thead>
+        <tbody>${row("Ingresos", t.inc, tp.inc, true)}${row("Gastos", t.exp, tp.exp, false)}${row("Neto", t.net, tp.net, true)}</tbody></table>
+      <div class="c-head" style="margin-top:18px"><span class="c-title">Comparación anual</span>${pill(`ene–${monthName(ym, true)}`, "#b69cff", "calendar")}</div>
+      <table class="cmp"><thead><tr><th></th><th>${ly}</th><th>${yr}</th><th></th></tr></thead>
+        <tbody>${row("Ingresos", Y.inc, L.inc, true)}${row("Gastos", Y.exp, L.exp, false)}${row("Neto", Y.inc - Y.exp, L.inc - L.exp, true)}</tbody></table>
+    </section>`;
+
+    // Gastos por categoría (color de cada categoría)
     const byCat = catTotals(ym), byCatPrev = catTotals(prevYm);
     const rows = Object.entries(byCat).sort((a, b) => b[1] - a[1]);
-    html += `<section class="card"><h2>Gastos por categoría</h2>`;
+    html += `<section class="card tone" style="--t:#f0a6ea"><div class="c-head"><span class="c-title">Gastos por categoría</span></div>`;
     if (!rows.length) html += `<div class="empty">Sin gastos este mes.</div>`;
     else {
       const max = rows[0][1];
       html += `<div class="bars">${rows.map(([id, v]) => {
-        const c = cat(id) || { icon: "box", name: "Sin categoría" };
-        const p = byCatPrev[id] || 0;
-        const d = p ? (v - p) / p : null;
-        const delta = d == null ? "" : Math.abs(d) < 0.05 ? "" : `<span class="delta ${d > 0 ? "up" : "down"}" title="vs ${monthName(prevYm)}">${d > 0 ? "▲" : "▼"} ${Math.round(Math.abs(d) * 100)}%</span>`;
-        return `<div class="bar-row"><div class="top"><span class="n">${catIco(c)} ${esc(c.name)} · ${Math.round(v / t.exp * 100)}%</span><b class="num">${money(v)}${delta}</b></div>
-          <div class="bar-track"><i style="width:${(v / max * 100).toFixed(1)}%"></i></div></div>`;
-      }).join("")}</div><p class="hint" style="margin-top:10px">▲▼ comparado con ${monthName(prevYm)}.</p>`;
+        const c = cat(id) || { icon: "box", name: "Sin categoría" }, col = colorFor(id);
+        return `<div class="bar-row tap" data-catgo="${id}"><div class="top"><span class="n">${esc(c.name)} · ${Math.round(v / t.exp * 100)}%</span><b class="num">${money(v)}${dTag(v, byCatPrev[id] || 0, false)}</b></div>
+          <div class="bar-track"><i style="width:${(v / max * 100).toFixed(1)}%;background:${col}"></i></div></div>`;
+      }).join("")}</div>`;
     }
     html += `</section>`;
 
-    // Tendencia 6 meses
-    const months = [5, 4, 3, 2, 1, 0].map((i) => addMonths(ym, -i));
-    const vals = months.map((m) => totals(m).exp);
-    const mx = Math.max(...vals, 1);
-    html += `<section class="card"><h2>Gastos últimos 6 meses</h2><div class="trend">${months.map((m, i) => `
-      <div class="col ${m === ym ? "cur" : ""}" title="${monthName(m)}: ${money(vals[i])}">
-        <span class="val num">${vals[i] ? money(vals[i], { short: true }).replace(/\.\d+$/, "") : ""}</span>
-        <div class="b" style="height:${(vals[i] / mx * 100).toFixed(1)}%"></div>
-        <span class="m">${monthName(m, true)}</span></div>`).join("")}</div></section>`;
+    // Suscripciones
+    const st = subsTotals();
+    if (st.subs.length) html += `<section class="card tone" style="--t:#ff8fa3">
+      <div class="c-head"><span class="c-title">Suscripciones</span>${pill(`${st.subs.length}`, "#ff8fa3", "tv")}</div>
+      <div class="split2" style="margin-top:0;padding-top:0;border:0"><div><span class="k">Al mes</span><b class="num">${money(st.month)}</b></div><div><span class="k">Al año</span><b class="num">${money(st.year)}</b></div></div>
+      <ul class="list" style="margin-top:8px">${st.subs.map((f) => `<li class="item tap" data-edit-fixed="${f.id}">${tile(iconKey(cat(f.category_id)?.icon, f.name, "tv"), colorFor(f.id), "sm")}<div class="main"><div class="t">${esc(f.name)}</div><div class="s">${scheduleLabel(f)}</div></div><div class="amt num">${money(perMonth(f))}<small class="orig">${money(perMonth(f) * 12)}/año</small></div></li>`).join("")}</ul>
+    </section>`;
 
-    // Por cuenta
-    const byAcc = {};
-    for (const m of monthMovs(ym)) if (m.type === "gasto") byAcc[m.account_id || "-"] = (byAcc[m.account_id || "-"] || 0) + Number(m.amount);
-    const accRows = Object.entries(byAcc).sort((a, b) => b[1] - a[1]);
-    if (accRows.length) {
-      html += `<section class="card"><h2>¿Con qué pagaste?</h2><ul class="list">${accRows.map(([id, v]) => {
-        const a = acc(id) || { icon: "question", name: "Sin cuenta" };
-        return `<li class="item"><div class="ico">${accIco(a)}</div><div class="main"><div class="t">${esc(a.name)}</div></div><div class="amt num">${money(v)}</div></li>`;
-      }).join("")}</ul></section>`;
-    }
+    // Consejos
+    const tips = buildTips(ym, t, tp);
+    if (tips.length) html += `<section class="card"><div class="c-head"><span class="c-title">Cómo ahorrar más</span></div><ul class="tips">${tips.map(([e2, s2]) => `<li><span class="e">${ico(e2)}</span><span>${s2}</span></li>`).join("")}</ul></section>`;
+
+    // Exportar
+    html += `<section class="card"><div class="c-head"><span class="c-title">Exportar reportes</span></div>
+      <div class="row2"><button class="btn" data-export="xlsx">${ico("file")} Excel</button><button class="btn" data-export="pdf">${ico("receipt")} PDF</button></div></section>`;
     return html;
   }
+
   function catTotals(ym) {
     const o = {};
     for (const m of monthMovs(ym)) if (m.type === "gasto") o[m.category_id || "-"] = (o[m.category_id || "-"] || 0) + Number(m.amount);
@@ -807,10 +973,12 @@
     const m = opts.id ? S.movements.find((x) => x.id === opts.id) : null;
     entry = m ? { ...m } : {
       type: opts.type || "gasto", category_id: opts.category_id || null,
-      account_id: opts.account_id || ls.get("wc_last_acc", null), fixed_id: opts.fixed_id || null, fixed_for: opts.fixed_for || null,
+      account_id: opts.account_id || ls.get("wc_last_acc", null), to_account_id: opts.to_account_id || null, fixed_id: opts.fixed_id || null, fixed_for: opts.fixed_for || null,
       amount: opts.amount || "", note: opts.note || "", date: today(),
     };
-    $("#entryAmount").value = entry.amount ? String(Number(entry.amount)) : "";
+    entry.currency = m?.currency === "USD" ? "USD" : "base";
+    $("#entryAmount").value = entry.currency === "USD" && m?.orig_amount ? String(Number(m.orig_amount)) : entry.amount ? String(Number(entry.amount)) : "";
+    syncCurrency();
     $("#entryNote").value = entry.note || "";
     $("#entryDate").value = entry.date;
     $("#entryDelete").hidden = !m;
@@ -843,6 +1011,21 @@
     $("#entryToAccount").innerHTML = opts;
     if (entry.to_account_id) $("#entryToAccount").value = entry.to_account_id;
   }
+  // Moneda del movimiento: la principal o dólares (se convierte con el tipo de cambio de Ajustes)
+  const baseCur = () => S.settings.currency || "MXN";
+  const usdRate = () => Number(S.settings.usd_rate) || 0;
+  function syncCurrency() {
+    const show = baseCur() !== "USD";
+    $("#entryCur").hidden = !show;
+    $("#entryCur [data-cur=base]").textContent = baseCur();
+    $$("#entryCur button").forEach((b) => b.classList.toggle("active", b.dataset.cur === entry.currency));
+    $(".amount-wrap .cur").textContent = entry.currency === "USD" ? "US$" : curSymbol();
+    const v = parseAmount($("#entryAmount").value), conv = $("#entryConv");
+    conv.hidden = entry.currency !== "USD";
+    if (entry.currency === "USD") conv.textContent = usdRate() ? `= ${money(v > 0 ? v * usdRate() : 0)} (1 USD = ${usdRate()} ${baseCur()})` : "Configura el tipo de cambio en Ajustes → Moneda";
+  }
+  $("#entryCur").addEventListener("click", (e) => { const b = e.target.closest("[data-cur]"); if (!b) return; entry.currency = b.dataset.cur; syncCurrency(); fitAmount(); });
+  $("#entryAmount").addEventListener("input", () => entry.currency === "USD" && syncCurrency());
   const fitAmount = () => { const i = $("#entryAmount"); i.style.width = Math.max(1, i.value.length || 1) + 0.6 + "ch"; };
   $("#entryAmount").addEventListener("input", fitAmount);
   $("#entryType").addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) setEntryType(b.dataset.type); });
@@ -853,8 +1036,13 @@
   });
   $("#entryForm").addEventListener("submit", (e) => {
     e.preventDefault();
-    const amount = parseAmount($("#entryAmount").value);
+    let amount = parseAmount($("#entryAmount").value);
     if (!(amount > 0)) { toast("Escribe un monto válido"); $("#entryAmount").focus(); return; }
+    let currency = null, orig_amount = null;
+    if (entry.currency === "USD") {
+      if (!usdRate()) { toast("Primero pon el tipo de cambio en Ajustes"); return; }
+      currency = "USD"; orig_amount = amount; amount = Math.round(amount * usdRate() * 100) / 100;
+    }
     const type = entry.type;
     const account_id = $("#entryAccount").value || null;
     let category_id = entry.category_id;
@@ -867,7 +1055,7 @@
       id: entry.id || uuid(), user_id: S.user.id, type, amount,
       date: $("#entryDate").value || today(), note: $("#entryNote").value.trim() || null,
       category_id: type === "transferencia" ? null : category_id, account_id, to_account_id,
-      fixed_id: entry.fixed_id || null, fixed_for: entry.fixed_for || null,
+      fixed_id: entry.fixed_id || null, fixed_for: entry.fixed_for || null, currency, orig_amount,
       source: entry.source || "app", created_at: entry.created_at || new Date().toISOString(),
     };
     if (account_id) ls.set("wc_last_acc", account_id);
@@ -902,6 +1090,7 @@
     $("#fixedDay2").value = f?.day2 || "";
     $("#fixedWeekday").value = String(f?.weekday ?? 1);
     $("#fixedRemind").value = String(f?.remind_days ?? 3);
+    $("#fixedAuto").checked = !!f?.auto;
     $("#fixedInstallments").value = f?.installments || "";
     $("#fixedPaidBefore").value = f?.installments_paid_before || "";
     $("#fixedAcc").innerHTML = `<option value="">—</option>` + activeAccs().map((a) => `<option value="${a.id}">${esc(a.name)}</option>`).join("");
@@ -920,6 +1109,7 @@
     $("#fixedCat").value = activeCats(catKind).some((c) => c.id === prevCat) ? prevCat : "";
     $("#debtFields").hidden = kind !== "deuda";
     $("#fixedRemindWrap").hidden = bud;
+    $("#fixedAutoWrap").hidden = bud;
     $("#fixedAccWrap").hidden = bud;
     $("#fixedAccLabel").textContent = inc ? "Entra a" : "Se paga con";
     $("#fixedAmountLabel").textContent = bud ? "Tope por periodo" : inc ? "Monto (aprox.)" : "Monto aprox.";
@@ -987,10 +1177,12 @@
       remind_days: bud ? 0 : parseInt($("#fixedRemind").value, 10),
       installments: kind === "deuda" ? parseInt($("#fixedInstallments").value, 10) || null : null,
       installments_paid_before: kind === "deuda" ? parseInt($("#fixedPaidBefore").value, 10) || 0 : 0,
+      auto: bud ? false : $("#fixedAuto").checked,
       active: true, created_at: fixedEditing?.created_at || new Date().toISOString(),
     };
     if (!row.name) { toast("Escribe un nombre"); return; }
     mutate({ table: "fixed_payments", op: "upsert", row });
+    if (row.auto) autoPostRecurring();
     closeSheet($("#fixedSheet"));
     toast(fixedEditing ? "Fijo actualizado" : `${row.name} agregado · ${bud ? money(amount) + " " : ""}${scheduleLabel(row)}`);
   });
@@ -1007,6 +1199,49 @@
   // ---------- Hoja: cuenta / categoría ----------
   let itemEditing = null; // {table, row}
   let itemIconKey = "box";
+  // Campos según el tipo de cuenta (en crédito: límite, corte, pago, tasa y acciones)
+  function syncItemKind() {
+    const { table, row } = itemEditing, isAcc = table === "accounts";
+    const credit = isAcc && $("#itemAccKind").value === "credito";
+    $("#creditFields").hidden = !credit;
+    $("#itemBalanceWrap").hidden = !isAcc;
+    const bal = row ? accountBalance(row) : 0;
+    if (credit) {
+      $("#itemBalanceWrap span").textContent = row ? "Deuda inicial (cuando la diste de alta)" : "¿Cuánto debes hoy en esta tarjeta?";
+      $("#itemBalance").value = row ? String(Math.abs(Number(row.initial_balance || 0))) : "";
+    } else {
+      $("#itemBalanceWrap span").textContent = row ? `Saldo inicial (saldo actual: ${money(bal)})` : "Saldo inicial (lo que tiene hoy)";
+      $("#itemBalance").value = row ? String(Number(row.initial_balance || 0)) : "";
+    }
+    $("#creditActions").hidden = !row || !credit;
+    $("#creditBox").hidden = !row || !credit;
+    if (row && credit) {
+      const c = creditInfo(row);
+      $("#creditBox").innerHTML = `<div><span>Saldo utilizado</span><b class="num neg">${money(c.used)}</b></div>
+        <div><span>Crédito disponible</span><b class="num pos">${c.avail == null ? "—" : money(c.avail)}</b></div>
+        <div><span>Interés estimado / mes</span><b class="num">${c.interest ? money(c.interest) : "—"}</b></div>
+        <div><span>Intereses pagados ${today().slice(0, 4)}</span><b class="num">${money(c.paidInterest)}</b></div>`;
+    }
+  }
+  $("#itemAccKind").addEventListener("change", () => {
+    if (!itemEditing.row) itemIconKey = { efectivo: "cash", debito: "bank", credito: "card", ahorro: "piggy", inversion: "trendUp" }[$("#itemAccKind").value] || itemIconKey;
+    renderIconGrid(); syncItemKind();
+  });
+  // Pago a la tarjeta = transferencia desde otra cuenta (no cuenta como gasto)
+  $("#creditPay").addEventListener("click", () => {
+    const a = itemEditing.row; if (!a) return;
+    const from = activeAccs().find((x) => x.kind === "debito" && x.id !== a.id) || activeAccs().find((x) => !isCredit(x));
+    closeSheet($("#itemSheet")); closeSheet($("#settingsSheet"));
+    openEntry({ type: "transferencia", amount: creditInfo(a).used || "", account_id: from?.id || null, to_account_id: a.id, note: `Pago ${a.name}` });
+  });
+  // Intereses = gasto en la tarjeta con categoría «Intereses» (se crea si no existe)
+  $("#creditInterest").addEventListener("click", () => {
+    const a = itemEditing.row; if (!a) return;
+    let c = activeCats("gasto").find((x) => /inter[eé]s/i.test(x.name));
+    if (!c) { c = { id: uuid(), user_id: S.user.id, icon: "trendUp", name: "Intereses", kind: "gasto", sort: S.categories.length + 1, archived: false }; mutate({ table: "categories", op: "upsert", row: c }); }
+    closeSheet($("#itemSheet")); closeSheet($("#settingsSheet"));
+    openEntry({ type: "gasto", amount: Math.round(creditInfo(a).interest * 100) / 100 || "", category_id: c.id, account_id: a.id, note: `Intereses ${a.name}` });
+  });
   function renderIconGrid() {
     $("#itemIcons").innerHTML = PICKABLE.map((k) => `<button type="button" data-icon="${k}" class="${k === itemIconKey ? "active" : ""}" aria-label="${k}">${ico(k)}</button>`).join("");
   }
@@ -1025,9 +1260,13 @@
     $("#itemBalanceWrap").hidden = !isAcc;
     $("#itemKindWrap").hidden = isAcc || !!row;
     $("#itemKind").value = row?.kind || kind || "gasto";
-    $("#itemBalance").value = row ? String(Number(row.initial_balance || 0)) : "";
-    if (isAcc && row) $("#itemBalanceWrap span").textContent = `Saldo inicial (saldo actual: ${money(accountBalance(row))})`;
-    else $("#itemBalanceWrap span").textContent = "Saldo inicial (lo que tiene hoy)";
+    $("#itemAccKindWrap").hidden = !isAcc;
+    $("#itemAccKind").value = row?.kind || "debito";
+    $("#itemLimit").value = row?.credit_limit ? String(Number(row.credit_limit)) : "";
+    $("#itemApr").value = row?.apr ? String(Number(row.apr)) : "";
+    $("#itemCut").value = row?.cut_day || "";
+    $("#itemDue").value = row?.due_day || "";
+    syncItemKind();
     $("#itemDelete").hidden = !row;
     openSheet("#itemSheet");
   }
@@ -1041,7 +1280,15 @@
       sort: row?.sort ?? list.length + 1, archived: false,
     };
     if (!r.name) return;
-    if (isAcc) r.initial_balance = parseAmount($("#itemBalance").value) || 0;
+    if (isAcc) {
+      r.kind = $("#itemAccKind").value;
+      const credit = r.kind === "credito", ib = parseAmount($("#itemBalance").value) || 0;
+      r.initial_balance = credit ? -Math.abs(ib) : ib;     // en crédito se captura lo que se debe
+      const num = (sel, min, max) => { const v = parseInt($(sel).value, 10); return credit && v >= min && v <= max ? v : null; };
+      r.credit_limit = credit ? parseAmount($("#itemLimit").value) || null : null;
+      r.apr = credit ? parseAmount($("#itemApr").value) || null : null;
+      r.cut_day = num("#itemCut", 1, 31); r.due_day = num("#itemDue", 1, 31);
+    }
     else r.kind = row?.kind || $("#itemKind").value;
     mutate({ table, op: "upsert", row: r });
     closeSheet($("#itemSheet"));
@@ -1066,6 +1313,10 @@
     $("#setCurrency").value = S.settings.currency || "MXN";
     $("#setBudget").value = S.settings.budget ? String(Number(S.settings.budget)) : "";
     $("#setGoal").value = S.settings.savings_goal ? String(Number(S.settings.savings_goal)) : "";
+    $("#setRate").value = S.settings.usd_rate ? String(Number(S.settings.usd_rate)) : "";
+    const syncRate = () => { const c = $("#setCurrency").value; $("#setRateWrap").hidden = c === "USD"; $("#setRateLbl").textContent = `1 USD = ? ${c}`; };
+    $("#setCurrency").onchange = syncRate; syncRate();
+    syncLockSettings();
     // Meses: 12 hacia atrás y 2 hacia adelante (más el guardado si queda fuera)
     const cur = ymOf(today()), sm = S.settings.start_month || "";
     const months = Array.from({ length: 15 }, (_, i) => addMonths(cur, 2 - i));
@@ -1085,6 +1336,7 @@
     const b = parseAmount($("#setBudget").value), g = parseAmount($("#setGoal").value);
     mutate({ table: "settings", op: "upsert", row: {
       user_id: S.user.id, currency: $("#setCurrency").value, start_month: $("#setStartMonth").value || null,
+      usd_rate: parseAmount($("#setRate").value) > 0 ? parseAmount($("#setRate").value) : null,
       budget: b > 0 ? b : null, savings_goal: g > 0 ? g : null, updated_at: new Date().toISOString(),
     } });
     closeSheet($("#settingsSheet"));
@@ -1107,6 +1359,94 @@
   $("#exportJson").addEventListener("click", () => {
     download(`withcash-respaldo-${today()}.json`, JSON.stringify({ exportedAt: new Date().toISOString(), settings: S.settings, accounts: S.accounts, categories: S.categories, fixed_payments: S.fixed, movements: S.movements }, null, 2), "application/json");
   });
+  // Restaurar respaldo (.json): vuelve a subir cuentas, categorías, fijos y movimientos a tu cuenta
+  $("#importJson").addEventListener("change", async (e) => {
+    const file = e.target.files[0]; e.target.value = "";
+    if (!file) return;
+    let d; try { d = JSON.parse(await file.text()); } catch { toast("El archivo no es un respaldo válido"); return; }
+    const sets = [["accounts", d.accounts], ["categories", d.categories], ["fixed_payments", d.fixed_payments], ["movements", d.movements]].filter(([, v]) => Array.isArray(v) && v.length);
+    if (!sets.length) { toast("El respaldo está vacío"); return; }
+    const total = sets.reduce((s2, [, v]) => s2 + v.length, 0);
+    if (!confirm(`¿Restaurar ${total} registros de este respaldo? Se agregan o actualizan; no se borra nada.`)) return;
+    for (const [table, rows] of sets) {
+      const clean = rows.map((r) => ({ ...r, user_id: S.user.id }));
+      for (let i = 0; i < clean.length; i += 300) mutate({ table, op: "upsert", row: clean.slice(i, i + 300) });
+    }
+    if (d.settings) mutate({ table: "settings", op: "upsert", row: { ...d.settings, user_id: S.user.id } });
+    toast(`Respaldo restaurado: ${total} registros`);
+  });
+
+  // Excel (.xlsx) sin librerías: hojas Movimientos, Resumen mensual, Categorías y Cuentas
+  function xlsxBlob(sheets) {
+    const enc = new TextEncoder(), xe = (v) => String(v ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+    const col = (i) => { let s2 = ""; for (i++; i; i = Math.floor((i - 1) / 26)) s2 = String.fromCharCode(65 + (i - 1) % 26) + s2; return s2; };
+    const sheetXml = (rows) => `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>${rows.map((r, ri) => `<row r="${ri + 1}">${r.map((v, ci) => {
+      const ref = col(ci) + (ri + 1);
+      return typeof v === "number" && isFinite(v) ? `<c r="${ref}"><v>${v}</v></c>` : `<c r="${ref}" t="inlineStr"${ri === 0 ? ' s="1"' : ""}><is><t>${xe(v)}</t></is></c>`;
+    }).join("")}</row>`).join("")}</sheetData></worksheet>`;
+    const files = {
+      "[Content_Types].xml": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>${sheets.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join("")}</Types>`,
+      "_rels/.rels": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`,
+      "xl/workbook.xml": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${sheets.map((sh, i) => `<sheet name="${xe(sh.name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join("")}</sheets></workbook>`,
+      "xl/_rels/workbook.xml.rels": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${sheets.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join("")}<Relationship Id="rId${sheets.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`,
+      "xl/styles.xml": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf/></cellStyleXfs><cellXfs count="2"><xf/><xf fontId="1" applyFont="1"/></cellXfs></styleSheet>`,
+    };
+    sheets.forEach((sh, i) => (files[`xl/worksheets/sheet${i + 1}.xml`] = sheetXml(sh.rows)));
+    // ZIP sin compresión
+    const crcT = new Uint32Array(256).map((_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c >>> 0; });
+    const crc32 = (b) => { let c = 0xffffffff; for (const x of b) c = crcT[(c ^ x) & 255] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
+    const parts = [], central = []; let off = 0;
+    const u16 = (v) => [v & 255, (v >>> 8) & 255], u32 = (v) => [v & 255, (v >>> 8) & 255, (v >>> 16) & 255, (v >>> 24) & 255];
+    for (const [name, txt] of Object.entries(files)) {
+      const nb = enc.encode(name), db = enc.encode(txt), crc = crc32(db);
+      const head = [...u32(0x04034b50), ...u16(20), ...u16(0), ...u16(0), ...u16(0), ...u16(0x21), ...u32(crc), ...u32(db.length), ...u32(db.length), ...u16(nb.length), ...u16(0)];
+      parts.push(new Uint8Array(head), nb, db);
+      central.push(new Uint8Array([...u32(0x02014b50), ...u16(20), ...u16(20), ...u16(0), ...u16(0), ...u16(0), ...u16(0x21), ...u32(crc), ...u32(db.length), ...u32(db.length), ...u16(nb.length), ...u16(0), ...u16(0), ...u16(0), ...u16(0), ...u32(0), ...u32(off)]), nb);
+      off += head.length + nb.length + db.length;
+    }
+    const cdSize = central.reduce((s2, b) => s2 + b.length, 0), n = Object.keys(files).length;
+    const end = new Uint8Array([...u32(0x06054b50), ...u16(0), ...u16(0), ...u16(n), ...u16(n), ...u32(cdSize), ...u32(off), ...u16(0)]);
+    return new Blob([...parts, ...central, end], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  }
+  function monthsWithData() {
+    const set = new Set(S.movements.map((m) => m.date.slice(0, 7))); set.add(ymOf(today()));
+    return [...set].sort();
+  }
+  $("#exportXlsx").addEventListener("click", () => {
+    const movs = S.movements.slice().sort((a, b) => a.date.localeCompare(b.date));
+    const TYPE = { gasto: "Gasto", ingreso: "Ingreso", transferencia: "Transferencia" };
+    const sheets = [
+      { name: "Movimientos", rows: [["Fecha", "Tipo", "Monto", "Moneda original", "Monto original", "Categoría", "Cuenta", "Cuenta destino", "Nota", "Fijo"],
+        ...movs.map((m) => [m.date, TYPE[m.type] || m.type, Number(m.amount), m.currency || baseCur(), m.orig_amount ? Number(m.orig_amount) : Number(m.amount),
+          cat(m.category_id)?.name || "", acc(m.account_id)?.name || "", acc(m.to_account_id)?.name || "", m.note || "", S.fixed.find((f) => f.id === m.fixed_id)?.name || ""])] },
+      { name: "Resumen mensual", rows: [["Mes", "Ingresos", "Gastos", "Neto", "% ahorro"], ...monthsWithData().map((m) => { const t = totals(m); return [m, t.inc, t.exp, t.net, t.inc ? Math.round(t.net / t.inc * 1000) / 10 : 0]; })] },
+      { name: `Categorías ${S.ym}`, rows: [["Categoría", "Gasto", "% del total"], ...Object.entries(catTotals(S.ym)).sort((a, b) => b[1] - a[1]).map(([id, v]) => [cat(id)?.name || "Sin categoría", v, Math.round(v / (totals(S.ym).exp || 1) * 1000) / 10])] },
+      { name: "Cuentas", rows: [["Cuenta", "Tipo", "Saldo", "Límite", "Disponible"], ...activeAccs().map((a) => { const c = isCredit(a) ? creditInfo(a) : null; return [a.name, ACC_KIND[a.kind] || "", accountBalance(a), c?.limit || "", c?.avail ?? ""]; })] },
+    ];
+    const blob = xlsxBlob(sheets), name = `withcash-${today()}.xlsx`;
+    const file = new File([blob], name, { type: blob.type });
+    if (navigator.canShare && navigator.canShare({ files: [file] }) && /iphone|ipad|android/i.test(navigator.userAgent)) { navigator.share({ files: [file], title: name }).catch(() => {}); return; }
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  });
+  // PDF: reporte imprimible (en iPhone: Compartir → Guardar en Archivos como PDF)
+  $("#exportPdf").addEventListener("click", () => {
+    const ym = S.ym, t = totals(ym), nw = netWorth(), cs = creditSummary(), st = subsTotals();
+    const yr = ym.slice(0, 4), yt = (y) => monthsWithData().filter((m) => m.startsWith(y)).reduce((a, m) => { const x = totals(m); a.inc += x.inc; a.exp += x.exp; return a; }, { inc: 0, exp: 0 });
+    const ty = yt(yr), ly = yt(String(Number(yr) - 1));
+    const tr = (cells) => `<tr>${cells.map((c, i) => `<td${i ? ' class="r"' : ""}>${c}</td>`).join("")}</tr>`;
+    $("#printArea").innerHTML = `<h1>WithCash · Reporte de ${monthName(ym)} ${yr}</h1><p>Generado el ${fmtShort(today())}</p>
+      <h2>Resumen del mes</h2><table>${tr(["Ingresos", money(t.inc)])}${tr(["Gastos", money(t.exp)])}${tr(["Neto", money(t.net)])}${tr(["Saldo de meses anteriores", money(carryIn(ym).amount)])}</table>
+      <h2>Patrimonio neto</h2><table>${tr(["Activos (cuentas)", money(nw.assets)])}${tr(["Deudas (tarjetas y préstamos)", money(nw.debts)])}${tr(["<b>Patrimonio neto</b>", `<b>${money(nw.net)}</b>`])}</table>
+      ${cs.cards.length ? `<h2>Tarjetas de crédito</h2><table>${tr(["Tarjeta", "Utilizado", "Límite", "Disponible"])}${cs.cards.map((c) => tr([esc(c.a.name), money(c.used), money(c.limit), c.avail == null ? "—" : money(c.avail)])).join("")}</table>` : ""}
+      <h2>Gastos por categoría</h2><table>${Object.entries(catTotals(ym)).sort((a, b) => b[1] - a[1]).map(([id, v]) => tr([esc(cat(id)?.name || "Sin categoría"), money(v), Math.round(v / (t.exp || 1) * 100) + "%"])).join("") || tr(["Sin gastos", ""])}</table>
+      <h2>Comparación mensual (últimos 6 meses)</h2><table>${tr(["Mes", "Ingresos", "Gastos", "Neto"])}${[5, 4, 3, 2, 1, 0].map((i) => addMonths(ym, -i)).map((m) => { const x = totals(m); return tr([`${monthName(m)} ${m.slice(0, 4)}`, money(x.inc), money(x.exp), money(x.net)]); }).join("")}</table>
+      <h2>Comparación anual</h2><table>${tr(["Año", "Ingresos", "Gastos", "Neto"])}${tr([String(Number(yr) - 1), money(ly.inc), money(ly.exp), money(ly.inc - ly.exp)])}${tr([yr, money(ty.inc), money(ty.exp), money(ty.inc - ty.exp)])}</table>
+      ${st.subs.length ? `<h2>Suscripciones</h2><table>${st.subs.map((f) => tr([esc(f.name), money(perMonth(f)) + "/mes"])).join("")}${tr(["<b>Total</b>", `<b>${money(st.month)}/mes · ${money(st.year)}/año</b>`])}</table>` : ""}`;
+    closeSheet($("#settingsSheet"));
+    setTimeout(() => window.print(), 150);
+  });
+
   $("#exportIcs").addEventListener("click", () => {
     const fx = S.fixed.filter((f) => f.active && !isBudget(f) && nextPending(f));
     if (!fx.length) { toast("Primero agrega pagos fijos"); return; }
@@ -1244,6 +1584,93 @@
     catch { prompt("Copia el texto:", b.dataset.copy); }
   });
 
+  // ---------- Privacidad: PIN y Face ID (bloqueo en este dispositivo) ----------
+  // El PIN se guarda solo como hash en este dispositivo. Face ID usa una llave de acceso (WebAuthn) del propio iPhone.
+  const LOCK_KEY = "wc_lock";
+  const lockCfg = () => ls.get(LOCK_KEY, {});
+  const saveLock = (c) => ls.set(LOCK_KEY, c);
+  const b64u = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  const unb64u = (s2) => Uint8Array.from(atob(s2.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
+  const pinHash = async (pin, salt) => sha256(`${salt}:${pin}`);
+  let pinBuf = "", pinMode = "unlock", pinFirst = "", lockedAt = 0;
+  const bioAvailable = async () => !!(window.PublicKeyCredential && await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable?.().catch(() => false));
+
+  function showLock(mode = "unlock") {
+    pinMode = mode; pinBuf = ""; pinFirst = "";
+    $("#lockMsg").textContent = mode === "set" ? "Crea un PIN de 4 dígitos" : "Ingresa tu PIN";
+    $("#lockBioBtn").style.visibility = mode === "unlock" && lockCfg().credId ? "visible" : "hidden";
+    $("#lockForgot").hidden = mode !== "unlock";
+    paintDots(); $("#lockScreen").hidden = false;
+    if (mode === "unlock" && lockCfg().credId) setTimeout(bioUnlock, 250);
+  }
+  const hideLock = () => { $("#lockScreen").hidden = true; pinBuf = ""; };
+  const paintDots = (err) => { $$("#pinDots i").forEach((d, i) => d.classList.toggle("on", i < pinBuf.length)); $("#pinDots").classList.toggle("err", !!err); };
+  async function onPinComplete() {
+    const c = lockCfg();
+    if (pinMode === "unlock") {
+      if (await pinHash(pinBuf, c.salt) === c.hash) { hideLock(); return; }
+      pinBuf = ""; paintDots(true); $("#lockMsg").textContent = "PIN incorrecto"; if (navigator.vibrate) navigator.vibrate([30, 40, 30]); return;
+    }
+    if (!pinFirst) { pinFirst = pinBuf; pinBuf = ""; paintDots(); $("#lockMsg").textContent = "Confírmalo"; return; }
+    if (pinFirst !== pinBuf) { pinFirst = ""; pinBuf = ""; paintDots(true); $("#lockMsg").textContent = "No coinciden. Crea tu PIN otra vez"; return; }
+    const salt = b64u(crypto.getRandomValues(new Uint8Array(12)));
+    saveLock({ ...c, on: true, salt, hash: await pinHash(pinBuf, salt) });
+    hideLock(); toast("PIN activado"); syncLockSettings();
+  }
+  $("#keypad").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-k]"); if (!b) return;
+    const k = b.dataset.k;
+    if (k === "del") pinBuf = pinBuf.slice(0, -1);
+    else if (k === "bio") { bioUnlock(); return; }
+    else if (pinBuf.length < 4) pinBuf += k;
+    paintDots();
+    if (pinBuf.length === 4) setTimeout(onPinComplete, 120);
+  });
+  $("#lockForgot").addEventListener("click", async () => {
+    if (!confirm("Para quitar el PIN se cerrará tu sesión. Después entras con tu correo y contraseña.")) return;
+    ls.del(LOCK_KEY); ls.del(cacheKey()); ls.del(outboxKey());
+    await sb.auth.signOut(); location.reload();
+  });
+  async function bioRegister() {
+    try {
+      const cred = await navigator.credentials.create({ publicKey: {
+        challenge: crypto.getRandomValues(new Uint8Array(32)), rp: { name: "WithCash", id: location.hostname },
+        user: { id: crypto.getRandomValues(new Uint8Array(16)), name: S.user.email || "withcash", displayName: S.user.email || "WithCash" },
+        pubKeyCredParams: [{ type: "public-key", alg: -7 }, { type: "public-key", alg: -257 }],
+        authenticatorSelection: { authenticatorAttachment: "platform", userVerification: "required", residentKey: "discouraged" }, timeout: 60000,
+      } });
+      saveLock({ ...lockCfg(), credId: b64u(cred.rawId) }); toast("Face ID activado"); return true;
+    } catch { toast("No se pudo activar Face ID"); return false; }
+  }
+  async function bioUnlock() {
+    const c = lockCfg(); if (!c.credId) return;
+    try {
+      await navigator.credentials.get({ publicKey: { challenge: crypto.getRandomValues(new Uint8Array(32)), rpId: location.hostname,
+        allowCredentials: [{ type: "public-key", id: unb64u(c.credId) }], userVerification: "required", timeout: 60000 } });
+      hideLock();
+    } catch { /* cancelado: queda el PIN */ }
+  }
+  async function syncLockSettings() {
+    const c = lockCfg();
+    $("#lockPinOn").checked = !!c.on; $("#lockChange").hidden = !c.on;
+    $("#lockBioWrap").hidden = !c.on || !(await bioAvailable());
+    $("#lockBioOn").checked = !!c.credId;
+  }
+  $("#lockPinOn").addEventListener("change", (e) => {
+    if (e.target.checked) { closeSheet($("#settingsSheet")); showLock("set"); }
+    else { if (!confirm("¿Quitar el bloqueo con PIN?")) { e.target.checked = true; return; } saveLock({}); syncLockSettings(); toast("Bloqueo desactivado"); }
+  });
+  $("#lockChange").addEventListener("click", () => { closeSheet($("#settingsSheet")); showLock("set"); });
+  $("#lockBioOn").addEventListener("change", async (e) => {
+    if (e.target.checked) { if (!(await bioRegister())) e.target.checked = false; }
+    else { const c = lockCfg(); delete c.credId; saveLock(c); }
+  });
+  const lockIfNeeded = () => { if (S.user && lockCfg().on && $("#lockScreen").hidden) showLock("unlock"); };
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) lockedAt = Date.now();
+    else if (lockedAt && Date.now() - lockedAt > 60000) lockIfNeeded();
+  });
+
   // ---------- Eventos globales ----------
   // Navegación entre secciones con historial (para el gesto de regresar)
   const tabHistory = [];
@@ -1309,12 +1736,14 @@
   document.addEventListener("touchmove", (e) => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
   // (el doble toque ya no hace zoom gracias a touch-action en el CSS)
   $("#view").addEventListener("click", (e) => {
-    const t = e.target.closest("[data-mov],[data-mov-open],[data-pay],[data-goto],[data-new-fixed],[data-edit-fixed],[data-filter],[data-catgo]");
+    const t = e.target.closest("[data-mov],[data-mov-open],[data-pay],[data-goto],[data-new-fixed],[data-edit-fixed],[data-filter],[data-catgo],[data-credit],[data-export]");
     if (!t) return;
     if (t.dataset.pay) payFixed(t.dataset.pay, t.dataset.month);
     else if (t.dataset.movOpen) openEntry({ id: t.dataset.movOpen });
     else if (t.dataset.mov) openEntry({ id: t.dataset.mov });
     else if (t.dataset.goto) goTab(t.dataset.goto);
+    else if (t.dataset.export) $(t.dataset.export === "pdf" ? "#exportPdf" : "#exportXlsx").click();
+    else if (t.hasAttribute("data-credit")) { const a = acc(t.dataset.credit); if (a) openItem("accounts", a); else openSettings(); }
     else if (t.dataset.catgo) { S.movFilter = t.dataset.catgo === "-" ? "todos" : t.dataset.catgo; goTab("movimientos"); }
     else if (t.hasAttribute("data-new-fixed")) openFixed();
     else if (t.dataset.editFixed) openFixed(t.dataset.editFixed);
@@ -1414,6 +1843,7 @@
 
   async function startApp(user) {
     S.user = user;
+    lockIfNeeded();
     S.ym = S.ym || ymOf(today());
     $("#authScreen").hidden = true;
     $("#appShell").hidden = false;

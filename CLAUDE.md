@@ -24,4 +24,10 @@ https://hectorayon6991.github.io/Withcash/
 - Inicio del control (`settings.start_month`, Ajustes → «Llevar el control desde»): antes de ese mes no hay fijos
   vencidos ni saldo arrastrado. El «Disponible» de cada mes suma lo que sobró o faltó (ingresos − gastos) de los meses
   anteriores desde ese inicio (`carryIn` en app.js y en `atajo`).
+- Cuentas: `kind` = efectivo | debito | credito | ahorro | inversion. Las de crédito tienen `credit_limit`, `cut_day`,
+  `due_day` y `apr`; su saldo negativo es la deuda. Pagar la tarjeta = transferencia; intereses = gasto en categoría «Intereses».
+- Fijos con `auto = true` se registran solos (`autoPostRecurring`); el índice único `(fixed_id, fixed_for)` evita duplicados.
+- Multi-moneda: `movements.amount` siempre en la moneda principal; si se capturó en dólares guarda `currency = 'USD'`
+  y `orig_amount`. Tipo de cambio en `settings.usd_rate`.
+- Bloqueo con PIN / Face ID (WebAuthn) solo en el dispositivo (`localStorage.wc_lock`). Íconos propios en `js/icons.js`.
 - Las categorías y cuentas por defecto las crea la app la primera vez que entra el usuario (`seedDefaults`).

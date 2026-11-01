@@ -55,7 +55,7 @@
         <button data-tab="inicio" class="active" aria-label="Inicio"><svg class="i" aria-hidden="true"><use href="#i-home"></use></svg><span class="lbl">Inicio</span></button>
         <button data-tab="movimientos" aria-label="Movimientos"><svg class="i" aria-hidden="true"><use href="#i-receipt"></use></svg><span class="lbl">Movimientos</span></button>
         <button data-tab="fijos" aria-label="Fijos"><svg class="i" aria-hidden="true"><use href="#i-calendar"></use></svg><span class="lbl">Fijos</span></button>
-        <button data-tab="balance" aria-label="Balance"><svg class="i" aria-hidden="true"><use href="#i-chart"></use></svg><span class="lbl">Balance</span></button>
+        <button data-tab="balance" aria-label="Reportes"><svg class="i" aria-hidden="true"><use href="#i-chart"></use></svg><span class="lbl">Reportes</span></button>
       </nav>
       <button class="fab" id="fab" aria-label="Agregar movimiento"><svg class="i" aria-hidden="true"><use href="#i-plus"></use></svg></button>
     </div>
@@ -75,6 +75,8 @@
         <span class="cur">$</span>
         <input id="entryAmount" inputmode="decimal" autocomplete="off" placeholder="0" required>
       </label>
+      <div class="cur-toggle" id="entryCur" hidden><button type="button" data-cur="base" class="active">MXN</button><button type="button" data-cur="USD">USD</button></div>
+      <p class="hint center" id="entryConv" hidden></p>
       <div class="chips" id="catChips"></div>
       <label class="field"><span id="accLabel">Cuenta</span><select id="entryAccount"></select></label>
       <label class="field" id="toAccWrap" hidden><span>Hacia la cuenta</span><select id="entryToAccount"></select></label>
@@ -147,6 +149,7 @@
         <label class="field"><span>Total de cuotas</span><input id="fixedInstallments" type="number" inputmode="numeric" min="1" placeholder="Ej. 24"></label>
         <label class="field narrow"><span>Ya pagadas</span><input id="fixedPaidBefore" type="number" inputmode="numeric" min="0" placeholder="0"></label>
       </div>
+      <label class="switch-row" id="fixedAutoWrap"><span><b>Registrar automáticamente</b><br><small>Se anota solo en su fecha (sin duplicados)</small></span><input type="checkbox" id="fixedAuto" role="switch"></label>
       <div class="row2">
         <label class="field"><span>Categoría</span><select id="fixedCat"></select></label>
         <label class="field narrow" id="fixedAccWrap"><span id="fixedAccLabel">Se paga con</span><select id="fixedAcc"></select></label>
@@ -167,7 +170,28 @@
       <label class="field"><span>Nombre</span><input id="itemName" maxlength="40" required></label>
       <div class="field"><span>Ícono</span><div class="icon-grid" id="itemIcons"></div></div>
       <label class="field" id="itemKindWrap"><span>Tipo</span><select id="itemKind"><option value="gasto">Gasto</option><option value="ingreso">Ingreso</option></select></label>
+      <label class="field" id="itemAccKindWrap"><span>Tipo de cuenta</span>
+        <select id="itemAccKind">
+          <option value="efectivo">Efectivo</option><option value="debito">Débito / banco</option>
+          <option value="credito">Tarjeta de crédito</option><option value="ahorro">Ahorro</option><option value="inversion">Inversión</option>
+        </select>
+      </label>
       <label class="field" id="itemBalanceWrap"><span>Saldo inicial (lo que tiene hoy)</span><input id="itemBalance" inputmode="decimal" placeholder="0"></label>
+      <div id="creditFields" hidden>
+        <div class="row2">
+          <label class="field"><span>Límite de crédito</span><input id="itemLimit" inputmode="decimal" placeholder="Ej. 30000"></label>
+          <label class="field narrow"><span>Tasa anual %</span><input id="itemApr" inputmode="decimal" placeholder="Ej. 45"></label>
+        </div>
+        <div class="row2">
+          <label class="field"><span>Día de corte</span><input id="itemCut" type="number" inputmode="numeric" min="1" max="31" placeholder="Ej. 3"></label>
+          <label class="field"><span>Día límite de pago</span><input id="itemDue" type="number" inputmode="numeric" min="1" max="31" placeholder="Ej. 23"></label>
+        </div>
+        <div class="credit-box" id="creditBox"></div>
+        <div class="stack" id="creditActions">
+          <button type="button" class="btn primary" id="creditPay">Registrar pago a la tarjeta</button>
+          <button type="button" class="btn" id="creditInterest">Registrar intereses cobrados</button>
+        </div>
+      </div>
       <div class="sheet-actions">
         <button type="button" class="btn ghost danger" id="itemDelete" hidden>Eliminar</button>
         <button type="button" class="btn ghost" data-close>Cancelar</button>
@@ -198,7 +222,16 @@
         <label class="field"><span>Gastos máx. al mes</span><input id="setBudget" inputmode="decimal" placeholder="Opcional"></label>
         <label class="field"><span>Meta de ahorro al mes</span><input id="setGoal" inputmode="decimal" placeholder="Opcional"></label>
       </div>
-      <label class="field"><span>Moneda</span><select id="setCurrency"></select></label>
+      <div class="row2">
+        <label class="field"><span>Moneda principal</span><select id="setCurrency"></select></label>
+        <label class="field" id="setRateWrap"><span id="setRateLbl">1 USD = ? MXN</span><input id="setRate" inputmode="decimal" placeholder="Ej. 18.50"></label>
+      </div>
+      <p class="hint">Con el tipo de cambio puedes registrar gastos en dólares: se convierten solos a tu moneda principal.</p>
+
+      <h3>Privacidad</h3>
+      <label class="switch-row"><span><b>Bloquear con PIN</b><br><small>Se pide al abrir la app o al volver después de 1 minuto</small></span><input type="checkbox" id="lockPinOn" role="switch"></label>
+      <label class="switch-row" id="lockBioWrap" hidden><span><b>Desbloquear con Face ID</b><br><small>Usa Face ID o Touch ID de este iPhone</small></span><input type="checkbox" id="lockBioOn" role="switch"></label>
+      <button type="button" class="btn block" id="lockChange" hidden>Cambiar PIN</button>
 
       <h3 class="h-row">Cuentas <button type="button" class="link" id="addAccount">+ Agregar</button></h3>
       <ul class="list" id="accountsList"></ul>
@@ -213,14 +246,18 @@
       <h3>Respaldo</h3>
       <div class="stack">
         <button type="button" class="btn" id="exportCsv"><svg class="i" aria-hidden="true"><use href="#i-file"></use></svg> Exportar movimientos del mes (.csv)</button>
-        <button type="button" class="btn" id="exportJson"><svg class="i" aria-hidden="true"><use href="#i-download"></use></svg> Descargar todo (.json)</button>
+        <button type="button" class="btn" id="exportXlsx"><svg class="i" aria-hidden="true"><use href="#i-file"></use></svg> Exportar a Excel (.xlsx)</button>
+        <button type="button" class="btn" id="exportPdf"><svg class="i" aria-hidden="true"><use href="#i-receipt"></use></svg> Reporte en PDF</button>
+        <button type="button" class="btn" id="exportJson"><svg class="i" aria-hidden="true"><use href="#i-download"></use></svg> Descargar respaldo completo (.json)</button>
+        <label class="btn file-btn"><svg class="i" aria-hidden="true"><use href="#i-refund"></use></svg> Restaurar desde respaldo<input type="file" id="importJson" accept="application/json,.json" hidden></label>
       </div>
+      <p class="hint">Tus datos también se guardan en la nube y se sincronizan entre tus dispositivos al iniciar sesión.</p>
 
       <div class="sheet-actions">
         <button type="button" class="btn ghost danger" id="logout">Cerrar sesión</button>
         <button type="submit" class="btn primary">Guardar</button>
       </div>
-      <p class="version">WithCash v1.3</p>
+      <p class="version">WithCash v1.5</p>
     </form>
   </dialog>
 
@@ -235,6 +272,21 @@
   </dialog>
 
   <div class="toast" id="toast" role="status"></div>
+
+  <!-- Bloqueo con PIN / Face ID -->
+  <div id="lockScreen" class="lock" hidden>
+    <img src="icons/icon.svg" alt="" width="56" height="56">
+    <p id="lockMsg">Ingresa tu PIN</p>
+    <div class="pin-dots" id="pinDots"><i></i><i></i><i></i><i></i></div>
+    <div class="keypad" id="keypad">
+      <button data-k="1">1</button><button data-k="2">2</button><button data-k="3">3</button>
+      <button data-k="4">4</button><button data-k="5">5</button><button data-k="6">6</button>
+      <button data-k="7">7</button><button data-k="8">8</button><button data-k="9">9</button>
+      <button data-k="bio" id="lockBioBtn" aria-label="Face ID"><svg class="i" aria-hidden="true"><use href="#i-checkCircle"></use></svg></button><button data-k="0">0</button><button data-k="del" aria-label="Borrar"><svg class="i" aria-hidden="true"><use href="#i-chevL"></use></svg></button>
+    </div>
+    <button type="button" class="link" id="lockForgot">Olvidé mi PIN</button>
+  </div>
+  <div id="printArea" class="print-area" aria-hidden="true"></div>
 
   <script src="js/icons.js"></script>
   <script src="js/config.js"></script>
