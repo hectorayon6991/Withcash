@@ -29,7 +29,7 @@
   --toast-ink: #000000;
   --spark: #c9c9cf;
   --radius: 24px;
-  --nav-h: 60px;
+  --nav-h: 68px;
   color-scheme: dark;
 }
 
@@ -158,7 +158,7 @@ button { cursor: pointer; }
 }
 .tabbar {
   pointer-events: auto; display: flex; align-items: center; gap: 2px; padding: 6px;
-  height: var(--nav-h); border-radius: 999px; max-width: 100%;
+  height: var(--nav-h); border-radius: 999px; width: min(316px, calc(100vw - 72px)); padding: 7px;
   overflow-x: auto; overflow-y: hidden; scrollbar-width: none; overscroll-behavior-x: contain; touch-action: pan-x;
   -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%);
           mask-image: linear-gradient(90deg, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%);
@@ -169,30 +169,30 @@ button { cursor: pointer; }
 }
 .tabbar::-webkit-scrollbar { display: none; }
 .tabbar button {
-  flex: none; border: 0; background: none; color: var(--muted); height: 48px; min-width: 46px; padding: 0 12px;
+  flex: none; border: 0; background: none; color: var(--muted); height: 54px; min-width: 52px; padding: 0 13px;
   border-radius: 999px; display: flex; align-items: center; justify-content: center; gap: 0; font-size: 13px; font-weight: 650;
   transition: background .3s ease, color .3s ease, gap .3s ease, padding .3s ease, height .3s ease, min-width .3s ease;
 }
-.tabbar button .i { width: 23px; height: 23px; transition: width .3s ease, height .3s ease; }
+.tabbar button .i { width: 25px; height: 25px; transition: width .3s ease, height .3s ease; }
 .tabbar button .lbl { max-width: 0; overflow: hidden; white-space: nowrap; opacity: 0; transition: max-width .35s ease, opacity .25s ease; }
-.tabbar button.active { background: var(--surface-3); color: var(--text); gap: 7px; padding: 0 15px 0 12px; }
+.tabbar button.active { background: var(--surface-3); color: var(--text); gap: 7px; padding: 0 16px 0 13px; }
 .tabbar button.active .lbl { max-width: 110px; opacity: 1; }
 .tabbar button.active .i { color: var(--accent); }
 .tabbar button:active { transform: scale(.94); }
-body.dock-mini .tabbar { height: 48px; padding: 4px; }
-body.dock-mini .tabbar button { height: 38px; min-width: 38px; padding: 0 9px; }
-body.dock-mini .tabbar button .i { width: 20px; height: 20px; }
-body.dock-mini .tabbar button.active { gap: 0; padding: 0 9px; }
+body.dock-mini .tabbar { height: 54px; padding: 5px; }
+body.dock-mini .tabbar button { height: 44px; min-width: 44px; padding: 0 10px; }
+body.dock-mini .tabbar button .i { width: 22px; height: 22px; }
+body.dock-mini .tabbar button.active { gap: 0; padding: 0 10px; }
 body.dock-mini .tabbar button.active .lbl { max-width: 0; opacity: 0; }
 /* Botón + flotante: arriba del menú, a la derecha */
 .fab {
-  position: fixed; z-index: 21; right: 18px; bottom: calc(env(safe-area-inset-bottom) + 14px + var(--nav-h) + 14px);
-  pointer-events: auto; width: 58px; height: 58px; border-radius: 50%; border: 0; padding: 0;
+  position: fixed; z-index: 21; right: calc((100vw - min(316px, calc(100vw - 72px))) / 2); bottom: calc(env(safe-area-inset-bottom) + 14px + var(--nav-h) + 12px);
+  pointer-events: auto; width: 60px; height: 60px; border-radius: 50%; border: 0; padding: 0;
   background: var(--fab-bg); color: var(--fab-ink); display: grid; place-items: center;
   box-shadow: 0 10px 30px rgba(127,127,127,.18), 0 8px 24px rgba(0,0,0,.45);
   transition: transform .15s ease, bottom .3s ease;
 }
-body.dock-mini .fab { bottom: calc(env(safe-area-inset-bottom) + 14px + 48px + 14px); }
+body.dock-mini .fab { bottom: calc(env(safe-area-inset-bottom) + 14px + 54px + 12px); }
 .fab .i { width: 28px; height: 28px; stroke-width: 2.2; }
 .fab:active { transform: scale(.92); }
 
