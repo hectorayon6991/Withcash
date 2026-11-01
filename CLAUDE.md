@@ -16,4 +16,9 @@ https://hectorayon6991.github.io/Withcash/
 ## Estructura
 - `js/app.js`: toda la lógica (estado, caché local + cola sin conexión, vistas Inicio/Movimientos/Fijos/Balance, ajustes, guía de Atajos).
 - Tablas: settings, accounts, categories, fixed_payments, movements, api_keys (todas con RLS por `user_id`).
+- Fijos (`fixed_payments`): `kind` = servicio | tarjeta | suscripcion | deuda (pagos), `ingreso` (sueldo) o
+  `presupuesto` (tope por periodo de una categoría; no genera movimientos). `frequency` = mensual (`day`),
+  quincenal (`day`, `day2`; 31 = último día) o semanal (`weekday`, 0 = domingo). La ocurrencia pagada/recibida se guarda en
+  `movements.fixed_for`: `YYYY-MM` (mensual) o `YYYY-MM-DD` (quincenal/semanal). Esta lógica está duplicada en
+  `js/app.js` y en la función `atajo`: si se cambia en una, cambiarla en la otra.
 - Las categorías y cuentas por defecto las crea la app la primera vez que entra el usuario (`seedDefaults`).

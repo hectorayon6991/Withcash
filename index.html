@@ -93,23 +93,45 @@
   <dialog id="fixedSheet" class="sheet">
     <form id="fixedForm" method="dialog">
       <div class="sheet-handle"></div>
-      <h2 id="fixedTitle">Nuevo pago fijo</h2>
+      <h2 id="fixedTitle">Nuevo fijo</h2>
       <div class="chips small" id="fixedTemplates"></div>
       <label class="field"><span>Nombre</span><input id="fixedName" maxlength="40" required placeholder="Ej. Tarjeta BBVA"></label>
       <div class="row2">
         <label class="field"><span>Tipo</span>
           <select id="fixedKind">
-            <option value="servicio">Servicio / colegio</option>
-            <option value="tarjeta">Tarjeta de crédito</option>
-            <option value="suscripcion">Suscripción</option>
-            <option value="deuda">Deuda / préstamo</option>
+            <optgroup label="Pagos">
+              <option value="servicio">Servicio / colegio</option>
+              <option value="tarjeta">Tarjeta de crédito</option>
+              <option value="suscripcion">Suscripción</option>
+              <option value="deuda">Deuda / préstamo</option>
+            </optgroup>
+            <option value="ingreso">💼 Ingreso fijo</option>
+            <option value="presupuesto">🎯 Presupuesto</option>
           </select>
         </label>
-        <label class="field narrow"><span>Día de pago</span><input id="fixedDay" type="number" inputmode="numeric" min="1" max="31" required placeholder="15"></label>
+        <label class="field narrow"><span>Cada cuándo</span>
+          <select id="fixedFreq">
+            <option value="mensual">Mensual</option>
+            <option value="quincenal">Quincenal</option>
+            <option value="semanal">Semanal</option>
+          </select>
+        </label>
       </div>
+      <p class="hint" id="fixedKindHint" hidden></p>
+      <div class="row2" id="fixedWhen">
+        <label class="field" id="fixedDayWrap"><span id="fixedDayLabel">Día de pago</span><input id="fixedDay" type="number" inputmode="numeric" min="1" max="31" placeholder="15"></label>
+        <label class="field narrow" id="fixedDay2Wrap" hidden><span>2º día</span><input id="fixedDay2" type="number" inputmode="numeric" min="1" max="31" placeholder="31"></label>
+        <label class="field" id="fixedWeekdayWrap" hidden><span id="fixedWeekdayLabel">Día de la semana</span>
+          <select id="fixedWeekday">
+            <option value="1">Lunes</option><option value="2">Martes</option><option value="3">Miércoles</option><option value="4">Jueves</option>
+            <option value="5">Viernes</option><option value="6">Sábado</option><option value="0">Domingo</option>
+          </select>
+        </label>
+      </div>
+      <p class="hint" id="fixedDayHint" hidden>31 = último día del mes (30, 31 o 28 según el mes).</p>
       <div class="row2">
-        <label class="field"><span>Monto aprox.</span><input id="fixedAmount" inputmode="decimal" placeholder="0" required></label>
-        <label class="field narrow"><span>Avisar</span>
+        <label class="field"><span id="fixedAmountLabel">Monto aprox.</span><input id="fixedAmount" inputmode="decimal" placeholder="0" required></label>
+        <label class="field narrow" id="fixedRemindWrap"><span>Avisar</span>
           <select id="fixedRemind">
             <option value="0">El mismo día</option>
             <option value="1">1 día antes</option>
@@ -125,7 +147,7 @@
       </div>
       <div class="row2">
         <label class="field"><span>Categoría</span><select id="fixedCat"></select></label>
-        <label class="field narrow"><span>Se paga con</span><select id="fixedAcc"></select></label>
+        <label class="field narrow" id="fixedAccWrap"><span id="fixedAccLabel">Se paga con</span><select id="fixedAcc"></select></label>
       </div>
       <div class="sheet-actions">
         <button type="button" class="btn ghost danger" id="fixedDelete" hidden>Eliminar</button>
@@ -166,6 +188,10 @@
       <div class="stack">
         <button type="button" class="btn primary" id="openShortcuts">Configurar Atajos</button>
       </div>
+
+      <h3>Control de fijos</h3>
+      <label class="field"><span>Llevar el control desde</span><select id="setStartMonth"></select></label>
+      <p class="hint">Los pagos e ingresos fijos de antes de ese mes no aparecen como vencidos ni pendientes.</p>
 
       <h3>Presupuesto</h3>
       <div class="row2">

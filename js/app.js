@@ -24,7 +24,8 @@
 
   const MESES = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
   const CURRENCIES = [["MXN","Peso mexicano"],["USD","Dólar"],["HNL","Lempira"],["GTQ","Quetzal"],["COP","Peso colombiano"],["PEN","Sol"],["CLP","Peso chileno"],["ARS","Peso argentino"],["EUR","Euro"]];
-  const KIND_LABEL = { tarjeta: "💳 Tarjetas de crédito", servicio: "💡 Servicios y colegio", suscripcion: "📺 Suscripciones", deuda: "🚗 Deudas y préstamos" };
+  const KIND_LABEL = { tarjeta: "💳 Tarjetas de crédito", servicio: "💡 Servicios y colegio", suscripcion: "📺 Suscripciones", deuda: "🚗 Deudas y préstamos",
+    ingreso: "💼 Ingresos fijos", presupuesto: "🎯 Presupuestos" };
 
   const DEFAULT_CATS = [
     ["🍔","Comida","gasto"],["🛒","Súper","gasto"],["🚗","Transporte","gasto"],["⛽","Gasolina","gasto"],["🏠","Casa","gasto"],
@@ -34,6 +35,9 @@
   ];
   const DEFAULT_ACCS = [["💵","Efectivo"],["🏦","Débito"],["💳","Crédito"]];
   const TEMPLATES = [
+    { name: "Sueldo", kind: "ingreso", cat: "Sueldo", icon: "💼", frequency: "quincenal", day: 15, day2: 31 },
+    { name: "Gasolina", kind: "presupuesto", cat: "Gasolina", icon: "⛽", frequency: "semanal", weekday: 1 },
+    { name: "Súper", kind: "presupuesto", cat: "Súper", icon: "🛒", frequency: "semanal", weekday: 1 },
     { name: "Tarjeta de crédito", kind: "tarjeta", cat: "Tarjetas", icon: "💳" },
     { name: "Luz", kind: "servicio", cat: "Servicios", icon: "💡" },
     { name: "Internet", kind: "servicio", cat: "Servicios", icon: "🌐" },
@@ -71,6 +75,11 @@
     const dt = new Date(d + "T12:00:00");
     return dt.toLocaleDateString("es-MX", { weekday: "long", day: "numeric", month: "short" });
   };
+  const localDay = (iso) => { const d = new Date(iso); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
+  const WEEKDAYS = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
+  const dow = (d) => new Date(d + "T12:00:00Z").getUTCDay();
+  const addDays = (d, n) => { const t = new Date(d + "T12:00:00Z"); t.setUTCDate(t.getUTCDate() + n); return t.toISOString().slice(0, 10); };
+  const fmtShort = (d) => new Date(d + "T12:00:00").toLocaleDateString("es-MX", { weekday: "short", day: "numeric", month: "short" });
 
   // ---------- Dinero ----------
   let _fmt = null, _fmtCur = null;
@@ -101,7 +110,71 @@
   const activeCats = (kind) => S.categories.filter((c) => !c.archived && (!kind || c.kind === kind)).sort((a, b) => a.sort - b.sort);
   const activeAccs = () => S.accounts.filter((a) => !a.archived).sort((a, b) => a.sort - b.sort);
   const monthMovs = (ym) => S.movements.filter((m) => m.date.startsWith(ym));
-  const paidFor = (f, ym) => S.movements.find((m) => m.fixed_id === f.id && m.fixed_for === ym);
+  // ---------- Fijos: frecuencias ----------
+  // kind: servicio | tarjeta | suscripcion | deuda (pagos) · ingreso (sueldo) · presupuesto (tope por periodo)
+  // Cada ocurrencia se identifica con `key`, que se guarda en movements.fixed_for:
+  //   mensual → "YYYY-MM" · quincenal / semanal → "YYYY-MM-DD"
+  const freqOf = (f) => f.frequency || "mensual";
+  const isIncome = (f) => f.kind === "ingreso";
+  const isBudget = (f) => f.kind === "presupuesto";
+  const isBill = (f) => !isIncome(f) && !isBudget(f);
+  const PER_MONTH = { mensual: 1, quincenal: 2, semanal: 52 / 12 };
+  const perMonth = (f) => Number(f.amount) * PER_MONTH[freqOf(f)];
+  const paidFor = (f, key) => S.movements.find((m) => m.fixed_id === f.id && m.fixed_for === key);
+  function occurrences(f, ym) {
+    const fr = freqOf(f);
+    if (fr === "mensual") return [{ key: ym, due: dueDate(ym, f.day) }];
+    if (fr === "quincenal") return [...new Set([dueDate(ym, f.day || 15), dueDate(ym, f.day2 || 31)])].sort().map((d) => ({ key: d, due: d }));
+    const out = [];
+    for (let d = addDays(`${ym}-01`, (f.weekday - dow(`${ym}-01`) + 7) % 7); d.startsWith(ym); d = addDays(d, 7)) out.push({ key: d, due: d });
+    return out;
+  }
+  // Una ocurrencia cuenta si ya está pagada, o si no es anterior al mes de inicio del control (Ajustes)
+  // ni a la creación del fijo (en mensual sí cuenta el mes en que se creó).
+  function counts(f, o) {
+    if (paidFor(f, o.key)) return true;
+    const start = S.settings.start_month;
+    if (start && o.due < `${start}-01`) return false;
+    const since = f.created_at ? localDay(f.created_at) : "";
+    return !since || o.due >= since || (freqOf(f) === "mensual" && o.key === since.slice(0, 7));
+  }
+  const monthOcc = (f, ym) => occurrences(f, ym).filter((o) => counts(f, o)).map((o) => ({ ...o, mov: paidFor(f, o.key) }));
+  const occLabel = (key) => key.length === 7 ? `correspondiente a ${monthName(key)}` : `del ${fmtShort(key)}`;
+  function scheduleLabel(f) {
+    const fr = freqOf(f);
+    if (isBudget(f)) return fr === "semanal" ? `por semana (desde el ${WEEKDAYS[f.weekday]})` : fr === "quincenal" ? "por quincena" : "por mes";
+    if (fr === "semanal") return `cada ${WEEKDAYS[f.weekday]}`;
+    if (fr === "quincenal") return `días ${f.day || 15} y ${(f.day2 || 31) >= 28 ? "último" : f.day2}`;
+    return `día ${f.day}`;
+  }
+  // Presupuestos: periodo que contiene la fecha d y lo gastado en la categoría dentro de él
+  function budgetPeriod(f, d = today()) {
+    const fr = freqOf(f), ym = ymOf(d);
+    if (fr === "semanal") { const start = addDays(d, -((dow(d) - f.weekday + 7) % 7)); return { start, end: addDays(start, 6) }; }
+    if (fr === "quincenal") return Number(d.slice(8)) <= 15 ? { start: `${ym}-01`, end: `${ym}-15` } : { start: `${ym}-16`, end: dueDate(ym, 31) };
+    return { start: `${ym}-01`, end: dueDate(ym, 31) };
+  }
+  function budgetUse(f, d = today()) {
+    const p = budgetPeriod(f, d), limit = Number(f.amount);
+    const spent = S.movements.filter((m) => m.type === "gasto" && m.category_id === f.category_id && m.date >= p.start && m.date <= p.end)
+      .reduce((s, m) => s + Number(m.amount), 0);
+    return { ...p, limit, spent, left: limit - spent, pct: limit > 0 ? spent / limit : 0 };
+  }
+  function budgetItem(f) {
+    const u = budgetUse(f), c = cat(f.category_id), next = addDays(u.end, 1);
+    const fr = freqOf(f);
+    const period = fr === "semanal" ? "esta semana" : fr === "quincenal" ? "esta quincena" : "este mes";
+    const reset = daysBetween(today(), next) <= 7 ? `el ${WEEKDAYS[dow(next)]}` : fmtShort(next);
+    return `<li class="item tap" data-edit-fixed="${f.id}">
+      <div class="ico">${esc(c?.icon || "🎯")}</div>
+      <div class="main">
+        <div class="t">${esc(f.name)}</div>
+        <div class="s"><b class="num">${money(u.spent)}</b> de ${money(u.limit)} ${period}</div>
+        <div class="progress budget-bar ${u.pct > 1 ? "over" : u.pct >= 0.8 ? "warn" : ""}"><i style="width:${Math.min(100, u.pct * 100).toFixed(1)}%"></i></div>
+        <div class="s">${u.left >= 0 ? `Quedan <b>${money(u.left)}</b>` : `<span class="badge bad">Te pasaste ${money(-u.left)}</span>`} · se reinicia ${reset}</div>
+      </div>
+    </li>`;
+  }
 
   function totals(ym) {
     let inc = 0, exp = 0, fixedExp = 0;
@@ -126,22 +199,39 @@
     return b;
   }
   // Próxima ocurrencia pendiente desde hoy
-  function nextPending(f) {
+  // Ocurrencias sin pagar (de hace un mes a dos meses adelante), en orden
+  function pendingOcc(f) {
     const ym = ymOf(today());
-    const m = paidFor(f, ym) ? addMonths(ym, 1) : ym;
-    const due = dueDate(m, f.day);
-    return { month: m, due, days: daysBetween(today(), due) };
+    return [addMonths(ym, -1), ym, addMonths(ym, 1), addMonths(ym, 2)].flatMap((m) => occurrences(f, m))
+      .filter((o) => counts(f, o) && !paidFor(f, o.key));
+  }
+  // Próxima ocurrencia pendiente: la más antigua sin pagar de este mes en adelante (puede estar vencida)
+  function nextPending(f) {
+    const t = today(), ym = ymOf(t);
+    const o = pendingOcc(f).find((x) => x.due >= `${ym}-01`);
+    return o ? { month: o.key, key: o.key, due: o.due, days: daysBetween(t, o.due) } : null;
   }
   function fixedStatus(f, ym) {
-    const p = paidFor(f, ym);
-    const due = dueDate(ym, f.day);
-    const days = daysBetween(today(), due);
-    if (p) return { paid: true, label: "Pagado", cls: "good", days, due, mov: p };
-    if (days < 0) return { label: `Venció hace ${-days} d`, cls: "bad", days, due };
-    if (days === 0) return { label: "Vence hoy", cls: "bad", days, due };
-    if (days === 1) return { label: "Vence mañana", cls: "warn", days, due };
-    if (days <= f.remind_days) return { label: `En ${days} días`, cls: "warn", days, due };
-    return { label: `Día ${f.day}`, cls: "", days, due };
+    const occ = monthOcc(f, ym);
+    const multi = occ.length > 1 ? ` · ${occ.filter((o) => o.mov).length}/${occ.length}` : "";
+    const done = isIncome(f) ? "Recibido" : "Pagado";
+    if (!occ.length) return { paid: false, none: true, label: "Sin fechas este mes", cls: "" };
+    const pend = occ.find((o) => !o.mov);
+    if (!pend) { const mov = occ[occ.length - 1].mov; return { paid: true, label: done + multi, cls: "good", mov, occ }; }
+    const days = daysBetween(today(), pend.due), due = pend.due, key = pend.key;
+    const base = { days, due, key, occ };
+    const dateLbl = freqOf(f) === "mensual" ? `Día ${f.day}` : fmtShort(due);
+    if (isIncome(f)) {
+      if (days < 0) return { ...base, label: `¿Ya llegó? (${fmtShort(due)})` + multi, cls: "warn" };
+      if (days === 0) return { ...base, label: "Llega hoy" + multi, cls: "good" };
+      if (days === 1) return { ...base, label: "Llega mañana" + multi, cls: "" };
+      return { ...base, label: dateLbl + multi, cls: "" };
+    }
+    if (days < 0) return { ...base, label: `Venció hace ${-days} d` + multi, cls: "bad" };
+    if (days === 0) return { ...base, label: "Vence hoy" + multi, cls: "bad" };
+    if (days === 1) return { ...base, label: "Vence mañana" + multi, cls: "warn" };
+    if (days <= f.remind_days) return { ...base, label: `En ${days} días` + multi, cls: "warn" };
+    return { ...base, label: dateLbl + multi, cls: "" };
   }
   function debtProgress(f) {
     if (f.kind !== "deuda" || !f.installments) return null;
@@ -250,7 +340,7 @@
     const uid = S.user.id;
     const cats = DEFAULT_CATS.map(([icon, name, kind], i) => ({ id: uuid(), user_id: uid, icon, name, kind, sort: i, archived: false }));
     const accs = DEFAULT_ACCS.map(([icon, name], i) => ({ id: uuid(), user_id: uid, icon, name, sort: i, initial_balance: 0, archived: false }));
-    if (withSettings) mutate({ table: "settings", op: "upsert", row: { user_id: uid, currency: "MXN", timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "America/Mexico_City" } });
+    if (withSettings) mutate({ table: "settings", op: "upsert", row: { user_id: uid, currency: "MXN", start_month: ymOf(today()), timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "America/Mexico_City" } });
     mutate({ table: "categories", op: "upsert", row: cats });
     mutate({ table: "accounts", op: "upsert", row: accs });
   }
@@ -315,14 +405,11 @@
   function upcomingList(limitDays = 10) {
     const t = today(), ym = ymOf(t);
     const rows = [];
-    for (const f of S.fixed.filter((x) => x.active)) {
-      // pendiente del mes anterior
-      const prev = addMonths(ym, -1);
-      if (!paidFor(f, prev) && f.created_at && f.created_at.slice(0, 10) < dueDate(prev, f.day)) {
-        rows.push({ f, month: prev, due: dueDate(prev, f.day), days: daysBetween(t, dueDate(prev, f.day)) });
-      }
-      const n = nextPending(f);
-      rows.push({ f, ...n });
+    for (const f of S.fixed.filter((x) => x.active && !isBudget(x))) {
+      // atrasados (hasta 3, desde el mes anterior) + el siguiente
+      const pend = pendingOcc(f);
+      const past = pend.filter((o) => o.due < t).slice(-3), fut = pend.find((o) => o.due >= t);
+      for (const o of [...past, fut].filter(Boolean)) rows.push({ f, month: o.key, due: o.due, days: daysBetween(t, o.due) });
     }
     rows.sort((a, b) => a.days - b.days);
     return { soon: rows.filter((r) => r.days <= Math.max(limitDays, r.f.remind_days)), next: rows.find((r) => r.days > limitDays) };
@@ -330,12 +417,15 @@
   function upcomingItem(r) {
     const { f, days } = r;
     const c = cat(f.category_id);
-    const cls = days <= 0 ? "bad" : days <= f.remind_days ? "warn" : "";
-    const when = days < 0 ? `Venció hace ${-days} día${days === -1 ? "" : "s"}` : days === 0 ? "Vence hoy" : days === 1 ? "Mañana" : `En ${days} días`;
+    const inc = isIncome(f);
+    const cls = inc ? (days <= 0 ? "good" : "") : days <= 0 ? "bad" : days <= f.remind_days ? "warn" : "";
+    const when = inc
+      ? (days < 0 ? "¿Ya llegó?" : days === 0 ? "Llega hoy" : days === 1 ? "Mañana" : `En ${days} días`)
+      : days < 0 ? `Venció hace ${-days} día${days === -1 ? "" : "s"}` : days === 0 ? "Vence hoy" : days === 1 ? "Mañana" : `En ${days} días`;
     return `<li class="item">
-      <div class="ico">${esc(c?.icon || "📅")}</div>
-      <div class="main"><div class="t">${esc(f.name)}</div><div class="s"><span class="badge ${cls}">${when}</span> · ${fmtDay(r.due)}</div></div>
-      <div class="actions"><button class="btn sm primary" data-pay="${f.id}" data-month="${r.month}">Pagar</button></div>
+      <div class="ico">${esc(c?.icon || (inc ? "💼" : "📅"))}</div>
+      <div class="main"><div class="t">${esc(f.name)}${inc ? ` <span class="num pos">+${money(Number(f.amount))}</span>` : ""}</div><div class="s"><span class="badge ${cls}">${when}</span> · ${fmtDay(r.due)}</div></div>
+      <div class="actions"><button class="btn sm ${inc ? "" : "primary"}" data-pay="${f.id}" data-month="${r.month}">${inc ? "Recibir" : "Pagar"}</button></div>
     </li>`;
   }
 
@@ -357,7 +447,9 @@
       html += `<div class="progress ${pct > 1 ? "over" : ""}"><i style="width:${Math.min(100, pct * 100).toFixed(1)}%"></i></div>
         <div class="progress-label"><span>Presupuesto ${Math.round(pct * 100)}%</span><span>${pct > 1 ? "Excedido por " + money(t.exp - budget) : "Quedan " + money(budget - t.exp)}</span></div>`;
     }
-    if (!t.inc && isCur) html += `<p class="hint" style="margin:10px 0 0">💡 Registra tu sueldo con <b>+ → Ingreso</b> para ver cuánto te queda.</p>`;
+    if (!t.inc && isCur) html += S.fixed.some((f) => f.active && isIncome(f))
+      ? `<p class="hint" style="margin:10px 0 0">💡 Cuando te llegue tu sueldo, tócale <b>Recibir</b> para contarlo.</p>`
+      : `<p class="hint" style="margin:10px 0 0">💡 Registra tu sueldo con <b>+ → Ingreso</b>, o agrégalo en <b>Fijos</b> como ingreso fijo.</p>`;
     html += `</section>`;
 
     if (accs.length) {
@@ -367,10 +459,13 @@
       }).join("")}</div>`;
     }
 
+    const budgets = S.fixed.filter((f) => f.active && isBudget(f));
+    if (budgets.length && isCur) html += `<section class="card"><h2>Presupuestos <button class="link" data-goto="fijos">Editar</button></h2><ul class="list">${budgets.map(budgetItem).join("")}</ul></section>`;
+
     const up = upcomingList(10);
     html += `<section class="card"><h2>Próximos pagos <button class="link" data-goto="fijos">Ver todos</button></h2>`;
-    if (!S.fixed.length) {
-      html += `<div class="empty"><div class="e">📅</div>Agrega tus pagos fijos (tarjetas, luz, internet, colegio…) para recordarlos.<br><br><button class="btn primary" data-new-fixed>Agregar pago fijo</button></div>`;
+    if (!S.fixed.some((f) => f.active && !isBudget(f))) {
+      html += `<div class="empty"><div class="e">📅</div>Agrega tus pagos fijos (tarjetas, luz, colegio…) o tu sueldo para recordarlos.<br><br><button class="btn primary" data-new-fixed>Agregar fijo</button></div>`;
     } else if (!up.soon.length) {
       html += `<div class="empty">✅ Todo al corriente.${up.next ? `<br><span class="hint">Siguiente: <b>${esc(up.next.f.name)}</b> ${fmtDay(up.next.due)} (${money(Number(up.next.f.amount))})</span>` : ""}</div>`;
     } else {
@@ -409,38 +504,60 @@
     const ym = S.ym;
     const list = S.fixed.filter((f) => f.active);
     if (!list.length) {
-      return `<section class="card"><div class="empty"><div class="e">📅</div><b>Tus pagos fijos</b><br>Tarjetas, luz, internet, colegio, suscripciones y deudas. Te mostramos cuándo vence cada uno y si ya lo pagaste.<br><br><button class="btn primary" data-new-fixed>Agregar pago fijo</button></div></section>`;
+      return `<section class="card"><div class="empty"><div class="e">📅</div><b>Tus fijos</b><br>Pagos (tarjetas, luz, colegio, suscripciones, deudas), ingresos fijos (sueldo por semana, quincena o mes) y presupuestos (ej. gasolina $850 cada semana).<br><br><button class="btn primary" data-new-fixed>Agregar fijo</button></div></section>`;
     }
-    let total = 0, paid = 0;
-    for (const f of list) { const s = fixedStatus(f, ym); total += s.paid ? Number(s.mov.amount) : Number(f.amount); if (s.paid) paid += Number(s.mov.amount); }
-    let html = `<section class="card hero">
-      <div class="label">Pagos fijos de ${monthName(ym)}</div>
-      <div class="big num">${money(total)}</div>
-      <div class="stats" style="grid-template-columns:1fr 1fr">
-        <div class="stat"><div class="k">Pagado</div><div class="v num pos">${money(paid)}</div></div>
-        <div class="stat"><div class="k">Pendiente</div><div class="v num">${money(total - paid)}</div></div>
-      </div>
-      <div class="progress"><i style="width:${total ? (paid / total * 100).toFixed(1) : 0}%"></i></div>
-    </section>`;
-    for (const kind of ["tarjeta", "servicio", "suscripcion", "deuda"]) {
-      const items = list.filter((f) => f.kind === kind).sort((a, b) => a.day - b.day);
-      if (!items.length) continue;
-      html += `<section class="card"><h2>${KIND_LABEL[kind]}</h2><ul class="list">`;
-      for (const f of items) {
-        const s = fixedStatus(f, ym), c = cat(f.category_id), dp = debtProgress(f);
-        html += `<li class="item">
-          <div class="ico tap" data-edit-fixed="${f.id}">${esc(c?.icon || "📅")}</div>
-          <div class="main tap" data-edit-fixed="${f.id}">
-            <div class="t">${esc(f.name)}</div>
-            <div class="s"><span class="badge ${s.cls}">${s.label}</span> · ${money(s.paid ? Number(s.mov.amount) : Number(f.amount))}</div>
-            ${dp ? `<div class="s">${dp.paid}/${dp.total} cuotas · faltan ${money(dp.left)}</div><div class="progress debt-bar"><i style="width:${(dp.pct * 100).toFixed(1)}%"></i></div>` : ""}
-          </div>
-          <div class="actions">${s.paid ? `<button class="btn sm" data-mov-open="${s.mov.id}">✓</button>` : `<button class="btn sm primary" data-pay="${f.id}" data-month="${ym}">Pagar</button>`}</div>
-        </li>`;
+    // Suma de las ocurrencias del mes (lo pagado cuenta con su monto real)
+    const sumOcc = (items) => {
+      let total = 0, done = 0;
+      for (const f of items) for (const o of monthOcc(f, ym)) {
+        const v = o.mov ? Number(o.mov.amount) : Number(f.amount);
+        total += v; if (o.mov) done += v;
       }
-      html += `</ul></section>`;
+      return { total, done };
+    };
+    const firstDue = (f) => monthOcc(f, ym)[0]?.due || "9999";
+    const item = (f) => {
+      const s = fixedStatus(f, ym), c = cat(f.category_id), dp = debtProgress(f), inc = isIncome(f);
+      const amt = s.paid ? Number(s.mov.amount) : Number(f.amount);
+      const action = s.none ? "" : s.paid ? `<button class="btn sm" data-mov-open="${s.mov.id}">✓</button>`
+        : `<button class="btn sm ${inc ? "" : "primary"}" data-pay="${f.id}" data-month="${s.key}">${inc ? "Recibir" : "Pagar"}</button>`;
+      return `<li class="item">
+        <div class="ico tap" data-edit-fixed="${f.id}">${esc(c?.icon || (inc ? "💼" : "📅"))}</div>
+        <div class="main tap" data-edit-fixed="${f.id}">
+          <div class="t">${esc(f.name)}</div>
+          <div class="s"><span class="badge ${s.cls}">${s.label}</span> · <span class="${inc ? "pos" : ""}">${money(amt)}</span>${freqOf(f) !== "mensual" ? ` · ${scheduleLabel(f)}` : ""}</div>
+          ${dp ? `<div class="s">${dp.paid}/${dp.total} cuotas · faltan ${money(dp.left)}</div><div class="progress debt-bar"><i style="width:${(dp.pct * 100).toFixed(1)}%"></i></div>` : ""}
+        </div>
+        <div class="actions">${action}</div>
+      </li>`;
+    };
+    let html = "";
+    const bills = list.filter(isBill);
+    if (bills.length) {
+      const { total, done } = sumOcc(bills);
+      html += `<section class="card hero">
+        <div class="label">Pagos fijos de ${monthName(ym)}</div>
+        <div class="big num">${money(total)}</div>
+        <div class="stats" style="grid-template-columns:1fr 1fr">
+          <div class="stat"><div class="k">Pagado</div><div class="v num pos">${money(done)}</div></div>
+          <div class="stat"><div class="k">Pendiente</div><div class="v num">${money(total - done)}</div></div>
+        </div>
+        <div class="progress"><i style="width:${total ? (done / total * 100).toFixed(1) : 0}%"></i></div>
+      </section>`;
     }
-    html += `<button class="btn block" data-new-fixed>+ Agregar pago fijo</button>`;
+    const incomes = list.filter(isIncome).sort((a, b) => firstDue(a).localeCompare(firstDue(b)));
+    if (incomes.length) {
+      const { total, done } = sumOcc(incomes);
+      html += `<section class="card"><h2>${KIND_LABEL.ingreso} <span class="hint num">${money(done)} de ${money(total)}</span></h2><ul class="list">${incomes.map(item).join("")}</ul></section>`;
+    }
+    const budgets = list.filter(isBudget);
+    if (budgets.length) html += `<section class="card"><h2>${KIND_LABEL.presupuesto}</h2><ul class="list">${budgets.map(budgetItem).join("")}</ul></section>`;
+    for (const kind of ["tarjeta", "servicio", "suscripcion", "deuda"]) {
+      const items = list.filter((f) => f.kind === kind).sort((a, b) => firstDue(a).localeCompare(firstDue(b)));
+      if (!items.length) continue;
+      html += `<section class="card"><h2>${KIND_LABEL[kind]}</h2><ul class="list">${items.map(item).join("")}</ul></section>`;
+    }
+    html += `<button class="btn block" data-new-fixed>+ Agregar fijo</button>`;
     return html;
   }
 
@@ -533,7 +650,8 @@
     if (isCur) {
       const day = Number(today().slice(8)), dim = daysInMonth(ym);
       if (day >= 5 && day < dim && t.varExp > 0) {
-        const pendFixed = S.fixed.filter((f) => f.active && !paidFor(f, ym)).reduce((s, f) => s + Number(f.amount), 0);
+        const pendFixed = S.fixed.filter((f) => f.active && isBill(f))
+          .reduce((s, f) => s + monthOcc(f, ym).filter((o) => !o.mov).length * Number(f.amount), 0);
         const proj = t.varExp / day * dim + t.fixedExp + pendFixed;
         tips.push(["📈", `A este ritmo terminarías el mes con gastos de ~<b>${money(proj)}</b>${budget ? (proj > budget ? `, ${money(proj - budget)} arriba de tu presupuesto` : ", dentro de tu presupuesto") : ""}.`]);
       }
@@ -558,10 +676,15 @@
     const ants = monthMovs(ym).filter((m) => m.type === "gasto" && !m.fixed_id && Number(m.amount) <= small);
     if (ants.length >= 8) tips.push(["🐜", `Hiciste ${ants.length} gastos pequeños (≤ ${money(small)}) que suman <b>${money(ants.reduce((s, m) => s + Number(m.amount), 0))}</b>. Son los "gastos hormiga".`]);
     // fijos vs ingreso
-    const fixedMonthly = S.fixed.filter((f) => f.active).reduce((s, f) => s + Number(f.amount), 0);
+    const fixedMonthly = S.fixed.filter((f) => f.active && isBill(f)).reduce((s, f) => s + perMonth(f), 0);
     if (t.inc > 0 && fixedMonthly / t.inc > 0.5) tips.push(["📌", `Tus pagos fijos son el ${Math.round(fixedMonthly / t.inc * 100)}% de tus ingresos (lo ideal es ≤ 50%).`]);
     const subs = S.fixed.filter((f) => f.active && f.kind === "suscripcion");
-    if (subs.length >= 2) tips.push(["📺", `Pagas ${subs.length} suscripciones: ${money(subs.reduce((s, f) => s + Number(f.amount), 0))} al mes (${money(subs.reduce((s, f) => s + Number(f.amount), 0) * 12)} al año). ¿Usas todas?`]);
+    const subsMonthly = subs.reduce((s, f) => s + perMonth(f), 0);
+    if (subs.length >= 2) tips.push(["📺", `Pagas ${subs.length} suscripciones: ${money(subsMonthly)} al mes (${money(subsMonthly * 12)} al año). ¿Usas todas?`]);
+    if (isCur) for (const f of S.fixed.filter((x) => x.active && isBudget(x))) {
+      const u = budgetUse(f);
+      if (u.left < 0) tips.push(["🎯", `Te pasaste <b>${money(-u.left)}</b> del presupuesto de ${esc(f.name)} (${money(u.limit)} ${scheduleLabel(f)}).`]);
+    }
     if (tp.exp > 0 && t.exp > 0 && !isCur) {
       const d = (t.exp - tp.exp) / tp.exp;
       if (Math.abs(d) >= 0.05) tips.push([d > 0 ? "🔺" : "🔻", `Gastaste ${Math.round(Math.abs(d) * 100)}% ${d > 0 ? "más" : "menos"} que en ${monthName(addMonths(ym, -1))}.`]);
@@ -586,7 +709,7 @@
     const hint = $("#entryFixedHint");
     const f = entry.fixed_id && S.fixed.find((x) => x.id === entry.fixed_id);
     hint.hidden = !f;
-    if (f) hint.innerHTML = `📅 Pago de <b>${esc(f.name)}</b> correspondiente a ${monthName(entry.fixed_for)}.` +
+    if (f) hint.innerHTML = `${isIncome(f) ? "💼 Ingreso fijo" : "📅 Pago"} de <b>${esc(f.name)}</b> ${occLabel(entry.fixed_for)}.` +
       (f.kind === "tarjeta" ? `<br>Si tus compras ya las registras con la cuenta Crédito, usa <b>Transferir</b> (Débito → Crédito) para no contarlas doble.` : "");
     setEntryType(entry.type);
     fitAmount();
@@ -659,48 +782,100 @@
   function openFixed(id) {
     const f = id ? S.fixed.find((x) => x.id === id) : null;
     fixedEditing = f;
-    $("#fixedTitle").textContent = f ? "Editar pago fijo" : "Nuevo pago fijo";
+    $("#fixedTitle").textContent = f ? "Editar fijo" : "Nuevo fijo";
     $("#fixedTemplates").hidden = !!f;
     $("#fixedTemplates").innerHTML = TEMPLATES.map((t, i) => `<button type="button" class="chip" data-tpl="${i}">${t.icon} ${t.name}</button>`).join("");
     $("#fixedName").value = f?.name || "";
     $("#fixedAmount").value = f ? String(Number(f.amount)) : "";
-    $("#fixedDay").value = f?.day || "";
     $("#fixedKind").value = f?.kind || "servicio";
+    $("#fixedFreq").value = f ? freqOf(f) : "mensual";
+    $("#fixedDay").value = f?.day || "";
+    $("#fixedDay2").value = f?.day2 || "";
+    $("#fixedWeekday").value = String(f?.weekday ?? 1);
     $("#fixedRemind").value = String(f?.remind_days ?? 3);
     $("#fixedInstallments").value = f?.installments || "";
     $("#fixedPaidBefore").value = f?.installments_paid_before || "";
-    $("#fixedCat").innerHTML = `<option value="">—</option>` + activeCats("gasto").map((c) => `<option value="${c.id}">${esc(c.icon)} ${esc(c.name)}</option>`).join("");
-    $("#fixedCat").value = f?.category_id || "";
     $("#fixedAcc").innerHTML = `<option value="">—</option>` + activeAccs().map((a) => `<option value="${a.id}">${esc(a.icon)} ${esc(a.name)}</option>`).join("");
     $("#fixedAcc").value = f?.account_id || "";
     $("#fixedDelete").hidden = !f;
-    $("#debtFields").hidden = $("#fixedKind").value !== "deuda";
+    syncFixedForm(f?.category_id || "");
     openSheet("#fixedSheet");
   }
-  $("#fixedKind").addEventListener("change", () => { $("#debtFields").hidden = $("#fixedKind").value !== "deuda"; });
+  // Muestra/oculta campos según el tipo y la frecuencia
+  function syncFixedForm(keepCat) {
+    const kind = $("#fixedKind").value, fr = $("#fixedFreq").value;
+    const inc = kind === "ingreso", bud = kind === "presupuesto";
+    const catKind = inc ? "ingreso" : "gasto";
+    const prevCat = keepCat ?? $("#fixedCat").value;
+    $("#fixedCat").innerHTML = `<option value="">${bud ? "Elige la categoría…" : "—"}</option>` + activeCats(catKind).map((c) => `<option value="${c.id}">${esc(c.icon)} ${esc(c.name)}</option>`).join("");
+    $("#fixedCat").value = activeCats(catKind).some((c) => c.id === prevCat) ? prevCat : "";
+    $("#debtFields").hidden = kind !== "deuda";
+    $("#fixedRemindWrap").hidden = bud;
+    $("#fixedAccWrap").hidden = bud;
+    $("#fixedAccLabel").textContent = inc ? "Entra a" : "Se paga con";
+    $("#fixedAmountLabel").textContent = bud ? "Tope por periodo" : inc ? "Monto (aprox.)" : "Monto aprox.";
+    const hint = $("#fixedKindHint");
+    hint.hidden = !(inc || bud);
+    hint.textContent = bud ? "Se suman los gastos de la categoría elegida en cada periodo y te muestra cuánto te queda. No es un pago: no aparece como vencido."
+      : inc ? "Te aparece el día que te llega para registrarlo con un toque (botón Recibir)." : "";
+    // Cuándo
+    const weekly = fr === "semanal", biweekly = fr === "quincenal";
+    $("#fixedWeekdayWrap").hidden = !weekly;
+    $("#fixedWeekdayLabel").textContent = bud ? "La semana empieza el" : inc ? "Llega cada" : "Se paga cada";
+    $("#fixedDayWrap").hidden = weekly || bud;           // presupuesto quincenal/mensual: periodos 1–15 / 16–fin o el mes completo
+    $("#fixedDay2Wrap").hidden = !biweekly || bud;
+    $("#fixedDayLabel").textContent = biweekly ? "1er día" : inc ? "Día que llega" : "Día de pago";
+    $("#fixedDayHint").hidden = !biweekly || bud;
+    $("#fixedWhen").hidden = bud && !weekly;
+    if (biweekly && !bud) { if (!$("#fixedDay").value) $("#fixedDay").value = 15; if (!$("#fixedDay2").value) $("#fixedDay2").value = 31; }
+  }
+  $("#fixedKind").addEventListener("change", () => {
+    // Valores sugeridos al cambiar a ingreso / presupuesto
+    const k = $("#fixedKind").value;
+    if (!fixedEditing && k === "presupuesto" && $("#fixedFreq").value === "mensual") $("#fixedFreq").value = "semanal";
+    syncFixedForm();
+  });
+  $("#fixedFreq").addEventListener("change", () => syncFixedForm());
   $("#fixedTemplates").addEventListener("click", (e) => {
     const b = e.target.closest("[data-tpl]"); if (!b) return;
     const t = TEMPLATES[b.dataset.tpl];
     $("#fixedName").value = t.name;
     $("#fixedKind").value = t.kind;
-    const c = activeCats("gasto").find((x) => x.name === t.cat);
-    if (c) $("#fixedCat").value = c.id;
+    $("#fixedFreq").value = t.frequency || "mensual";
+    if (t.weekday != null) $("#fixedWeekday").value = String(t.weekday);
+    $("#fixedDay").value = t.day || "";
+    $("#fixedDay2").value = t.day2 || "";
+    const c = activeCats(t.kind === "ingreso" ? "ingreso" : "gasto").find((x) => x.name === t.cat);
+    syncFixedForm(c?.id || "");
     if (t.kind === "tarjeta") { const a = activeAccs().find((x) => /d[eé]bito/i.test(x.name)); if (a) $("#fixedAcc").value = a.id; }
-    $("#debtFields").hidden = t.kind !== "deuda";
     $$("#fixedTemplates .chip").forEach((x) => x.classList.toggle("active", x === b));
     $("#fixedAmount").focus();
   });
   $("#fixedForm").addEventListener("submit", (e) => {
     e.preventDefault();
+    const kind = $("#fixedKind").value, frequency = $("#fixedFreq").value;
+    const bud = kind === "presupuesto";
     const amount = parseAmount($("#fixedAmount").value);
-    const day = parseInt($("#fixedDay").value, 10);
-    if (!(amount >= 0) || isNaN(amount)) { toast("Monto inválido"); return; }
-    if (!(day >= 1 && day <= 31)) { toast("El día debe ser de 1 a 31"); return; }
-    const kind = $("#fixedKind").value;
+    if (isNaN(amount) || amount < 0 || (bud && !(amount > 0))) { toast(bud ? "Escribe el tope del presupuesto" : "Monto inválido"); return; }
+    let day = null, day2 = null, weekday = null;
+    if (frequency === "semanal") weekday = parseInt($("#fixedWeekday").value, 10);
+    else if (bud) day = 1;
+    else {
+      day = parseInt($("#fixedDay").value, 10);
+      if (!(day >= 1 && day <= 31)) { toast("El día debe ser de 1 a 31"); $("#fixedDay").focus(); return; }
+      if (frequency === "quincenal") {
+        day2 = parseInt($("#fixedDay2").value, 10) || 31;
+        if (!(day2 >= 1 && day2 <= 31) || day2 === day) { toast("Los dos días de la quincena deben ser distintos (1 a 31)"); return; }
+        if (day2 < day) [day, day2] = [day2, day];
+      }
+    }
+    const category_id = $("#fixedCat").value || null;
+    if (bud && !category_id) { toast("Elige la categoría que vas a controlar"); $("#fixedCat").focus(); return; }
     const row = {
-      id: fixedEditing?.id || uuid(), user_id: S.user.id, name: $("#fixedName").value.trim(), kind, amount, day,
-      category_id: $("#fixedCat").value || null, account_id: $("#fixedAcc").value || null,
-      remind_days: parseInt($("#fixedRemind").value, 10),
+      id: fixedEditing?.id || uuid(), user_id: S.user.id, name: $("#fixedName").value.trim(), kind, amount,
+      frequency, day, day2, weekday,
+      category_id, account_id: bud ? null : $("#fixedAcc").value || null,
+      remind_days: bud ? 0 : parseInt($("#fixedRemind").value, 10),
       installments: kind === "deuda" ? parseInt($("#fixedInstallments").value, 10) || null : null,
       installments_paid_before: kind === "deuda" ? parseInt($("#fixedPaidBefore").value, 10) || 0 : 0,
       active: true, created_at: fixedEditing?.created_at || new Date().toISOString(),
@@ -708,7 +883,7 @@
     if (!row.name) { toast("Escribe un nombre"); return; }
     mutate({ table: "fixed_payments", op: "upsert", row });
     closeSheet($("#fixedSheet"));
-    toast(fixedEditing ? "Pago fijo actualizado" : `${row.name} agregado · día ${day}`);
+    toast(fixedEditing ? "Fijo actualizado" : `${row.name} agregado · ${bud ? money(amount) + " " : ""}${scheduleLabel(row)}`);
   });
   $("#fixedDelete").addEventListener("click", () => {
     if (!fixedEditing || !confirm(`¿Eliminar "${fixedEditing.name}"? Los pagos ya registrados se conservan.`)) return;
@@ -717,7 +892,7 @@
   });
   function payFixed(id, month) {
     const f = S.fixed.find((x) => x.id === id); if (!f) return;
-    openEntry({ type: "gasto", amount: Number(f.amount), category_id: f.category_id, account_id: f.account_id, note: f.name, fixed_id: f.id, fixed_for: month });
+    openEntry({ type: isIncome(f) ? "ingreso" : "gasto", amount: Number(f.amount), category_id: f.category_id, account_id: f.account_id, note: f.name, fixed_id: f.id, fixed_for: month });
   }
 
   // ---------- Hoja: cuenta / categoría ----------
@@ -772,6 +947,13 @@
     $("#setCurrency").value = S.settings.currency || "MXN";
     $("#setBudget").value = S.settings.budget ? String(Number(S.settings.budget)) : "";
     $("#setGoal").value = S.settings.savings_goal ? String(Number(S.settings.savings_goal)) : "";
+    // Meses: 12 hacia atrás y 2 hacia adelante (más el guardado si queda fuera)
+    const cur = ymOf(today()), sm = S.settings.start_month || "";
+    const months = Array.from({ length: 15 }, (_, i) => addMonths(cur, 2 - i));
+    if (sm && !months.includes(sm)) months.push(sm);
+    $("#setStartMonth").innerHTML = `<option value="">Desde que agregué cada fijo</option>` +
+      months.sort().reverse().map((m) => `<option value="${m}">${monthName(m).replace(/^./, (c) => c.toUpperCase())} ${m.slice(0, 4)}</option>`).join("");
+    $("#setStartMonth").value = sm;
     renderSettingsLists();
     openSheet("#settingsSheet");
   }
@@ -783,7 +965,7 @@
     e.preventDefault();
     const b = parseAmount($("#setBudget").value), g = parseAmount($("#setGoal").value);
     mutate({ table: "settings", op: "upsert", row: {
-      user_id: S.user.id, currency: $("#setCurrency").value,
+      user_id: S.user.id, currency: $("#setCurrency").value, start_month: $("#setStartMonth").value || null,
       budget: b > 0 ? b : null, savings_goal: g > 0 ? g : null, updated_at: new Date().toISOString(),
     } });
     closeSheet($("#settingsSheet"));
@@ -807,23 +989,29 @@
     download(`withcash-respaldo-${today()}.json`, JSON.stringify({ exportedAt: new Date().toISOString(), settings: S.settings, accounts: S.accounts, categories: S.categories, fixed_payments: S.fixed, movements: S.movements }, null, 2), "application/json");
   });
   $("#exportIcs").addEventListener("click", () => {
-    const fx = S.fixed.filter((f) => f.active);
+    const fx = S.fixed.filter((f) => f.active && !isBudget(f) && nextPending(f));
     if (!fx.length) { toast("Primero agrega pagos fijos"); return; }
+    const BYDAY = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"];
+    const md = (d) => (d >= 28 ? "-1" : String(d)); // 28 o más → último día del mes (aprox.)
     const stamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d+/, "");
     const icsEsc = (s) => String(s).replace(/[\\,;]/g, (c) => "\\" + c).replace(/\n/g, "\\n");
     const lines = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//WithCash//ES", "CALSCALE:GREGORIAN", "X-WR-CALNAME:WithCash pagos"];
     for (const f of fx) {
       const n = nextPending(f);
       const start = n.due.replace(/-/g, "");
-      const rule = f.day > 28
-        ? `RRULE:FREQ=MONTHLY;BYMONTHDAY=${Array.from({ length: f.day - 27 }, (_, i) => 28 + i).join(",")};BYSETPOS=-1`
-        : `RRULE:FREQ=MONTHLY;BYMONTHDAY=${f.day}`;
-      const trig = f.remind_days > 0 ? `-PT${f.remind_days * 24 - 9}H` : "PT9H";
+      const fr = freqOf(f), inc = isIncome(f);
+      const rule = fr === "semanal" ? `RRULE:FREQ=WEEKLY;BYDAY=${BYDAY[f.weekday]}`
+        : fr === "quincenal" ? `RRULE:FREQ=MONTHLY;BYMONTHDAY=${md(f.day || 15)},${md(f.day2 || 31)}`
+        : f.day > 28
+          ? `RRULE:FREQ=MONTHLY;BYMONTHDAY=${Array.from({ length: f.day - 27 }, (_, i) => 28 + i).join(",")};BYSETPOS=-1`
+          : `RRULE:FREQ=MONTHLY;BYMONTHDAY=${f.day}`;
+      const trig = f.remind_days > 0 && !inc ? `-PT${f.remind_days * 24 - 9}H` : "PT9H";
+      const verb = inc ? "Cobrar" : "Pagar";
       lines.push("BEGIN:VEVENT", `UID:withcash-${f.id}`, `DTSTAMP:${stamp}`, `DTSTART;VALUE=DATE:${start}`, rule,
-        `SUMMARY:${icsEsc("💳 Pagar " + f.name + " (" + money(Number(f.amount)) + ")")}`,
+        `SUMMARY:${icsEsc((inc ? "💼 " : "💳 ") + verb + " " + f.name + " (" + money(Number(f.amount)) + ")")}`,
         `DESCRIPTION:${icsEsc("Recordatorio de WithCash")}`,
-        "BEGIN:VALARM", "ACTION:DISPLAY", `DESCRIPTION:${icsEsc("Pagar " + f.name)}`, `TRIGGER:${trig}`, "END:VALARM",
-        "BEGIN:VALARM", "ACTION:DISPLAY", `DESCRIPTION:${icsEsc("Hoy vence " + f.name)}`, "TRIGGER:PT9H", "END:VALARM",
+        "BEGIN:VALARM", "ACTION:DISPLAY", `DESCRIPTION:${icsEsc(verb + " " + f.name)}`, `TRIGGER:${trig}`, "END:VALARM",
+        ...(inc ? [] : ["BEGIN:VALARM", "ACTION:DISPLAY", `DESCRIPTION:${icsEsc("Hoy vence " + f.name)}`, "TRIGGER:PT9H", "END:VALARM"]),
         "END:VEVENT");
     }
     lines.push("END:VCALENDAR");
@@ -892,7 +1080,7 @@
       </ol>
 
       <h3>4. Atajo «Pagar fijo» (opcional)</h3>
-      <p class="hint">Para marcar como pagada una tarjeta, la luz, el colegio, Netflix…</p>
+      <p class="hint">Para marcar como pagada una tarjeta, la luz, el colegio, Netflix… o como recibido tu sueldo.</p>
       <ol>
         <li><span class="act">Obtener contenido de URL</span> → ${copy("", base + "&lista=fijos")}</li>
         <li><span class="act">Dividir texto</span> (Nuevas líneas) → <span class="act">Elegir de la lista</span>: <i>¿Qué pago estás realizando?</i></li>
@@ -964,7 +1152,7 @@
 
   function updateBadge() {
     if (!("setAppBadge" in navigator)) return;
-    const n = upcomingList(0).soon.filter((r) => r.days <= r.f.remind_days).length;
+    const n = upcomingList(0).soon.filter((r) => !isIncome(r.f) && r.days <= r.f.remind_days).length;
     (n ? navigator.setAppBadge(n) : navigator.clearAppBadge()).catch(() => {});
   }
 

@@ -2,10 +2,13 @@
 // La autenticación usa la llave personal (?k=... o encabezado x-key) que se genera en la app;
 // en la base de datos solo se guarda su hash SHA-256.
 //
-// GET  ?k=KEY&lista=cuentas|categorias|ingresos|fijos   -> una opción por línea
+// GET  ?k=KEY&lista=cuentas|categorias|ingresos|fijos   -> una opción por línea (fijos = pagos e ingresos fijos)
 // GET  ?k=KEY&resumen=avisos|mes                        -> texto (vacío si no hay avisos)
 // POST ?k=KEY  {tipo, monto, nota, cuenta, categoria, fijo, destino, fecha}
 //      tipo: gasto | ingreso | transferencia | fijo
+// Fijos (fixed_payments.kind): pagos (servicio, tarjeta, suscripcion, deuda), ingreso (sueldo) y presupuesto
+// (tope por periodo de una categoría). frequency: mensual (day) | quincenal (day, day2) | semanal (weekday 0–6).
+// La ocurrencia pagada se guarda en movements.fixed_for: "YYYY-MM" (mensual) o "YYYY-MM-DD" (quincenal/semanal).
 import { createClient } from "npm:@supabase/supabase-js@2.45.4";
 
 const db = createClient(
@@ -71,6 +74,46 @@ function dueDate(ym: string, day: number) {
 }
 const daysBetween = (a: string, b: string) =>
   Math.round((Date.parse(b + "T00:00:00Z") - Date.parse(a + "T00:00:00Z")) / 86400000);
+const dow = (d: string) => new Date(d + "T12:00:00Z").getUTCDay();
+function addDays(d: string, n: number) {
+  const t = new Date(d + "T12:00:00Z");
+  t.setUTCDate(t.getUTCDate() + n);
+  return t.toISOString().slice(0, 10);
+}
+const fmtDate = (d: string) => `${Number(d.slice(8))} ${MESES[Number(d.slice(5, 7)) - 1].slice(0, 3)}`;
+
+type Fixed = {
+  id: string; name: string; kind: string; amount: number; frequency?: string | null;
+  day: number | null; day2: number | null; weekday: number | null; remind_days: number;
+  category_id: string | null; account_id: string | null; created_at: string;
+};
+const freqOf = (f: Fixed) => f.frequency || "mensual";
+const isBudget = (f: Fixed) => f.kind === "presupuesto";
+const isIncome = (f: Fixed) => f.kind === "ingreso";
+function occurrences(f: Fixed, ym: string) {
+  const fr = freqOf(f);
+  if (fr === "mensual") return [{ key: ym, due: dueDate(ym, f.day ?? 1) }];
+  if (fr === "quincenal") {
+    return [...new Set([dueDate(ym, f.day || 15), dueDate(ym, f.day2 || 31)])].sort().map((d) => ({ key: d, due: d }));
+  }
+  const out: { key: string; due: string }[] = [];
+  const first = `${ym}-01`;
+  for (let d = addDays(first, ((f.weekday ?? 1) - dow(first) + 7) % 7); d.startsWith(ym); d = addDays(d, 7)) out.push({ key: d, due: d });
+  return out;
+}
+function budgetPeriod(f: Fixed, d: string) {
+  const fr = freqOf(f), ym = ymOf(d);
+  if (fr === "semanal") {
+    const start = addDays(d, -((dow(d) - (f.weekday ?? 1) + 7) % 7));
+    return { start, end: addDays(start, 6), label: "esta semana" };
+  }
+  if (fr === "quincenal") {
+    return Number(d.slice(8)) <= 15
+      ? { start: `${ym}-01`, end: `${ym}-15`, label: "esta quincena" }
+      : { start: `${ym}-16`, end: dueDate(ym, 31), label: "esta quincena" };
+  }
+  return { start: `${ym}-01`, end: dueDate(ym, 31), label: "este mes" };
+}
 
 function findByName<T extends { name: string }>(rows: T[], q: unknown): T | undefined {
   const n = norm(q);
@@ -121,16 +164,47 @@ Deno.serve(async (req) => {
   };
   const today = todayIn(tz);
   const ym = ymOf(today);
-  const acc = accounts ?? [], cat = cats ?? [], fx = fixed ?? [];
+  const acc = accounts ?? [], cat = cats ?? [];
+  const allFixed = (fixed ?? []) as Fixed[];
+  const fx = allFixed.filter((f) => !isBudget(f));          // pagos e ingresos fijos
+  const budgets = allFixed.filter(isBudget);
 
-  // Pagos fijos ya marcados este mes y el siguiente
+  // Ocurrencias ya marcadas desde el mes anterior ("YYYY-MM" y "YYYY-MM-DD" se ordenan bien como texto)
   const { data: paidRows } = await db.from("movements").select("fixed_id,fixed_for")
-    .eq("user_id", uid).not("fixed_id", "is", null).in("fixed_for", [addMonths(ym, -1), ym, addMonths(ym, 1)]);
+    .eq("user_id", uid).not("fixed_id", "is", null).gte("fixed_for", addMonths(ym, -1));
   const paid = new Set((paidRows ?? []).map((r) => `${r.fixed_id}|${r.fixed_for}`));
-  const nextPending = (f: { id: string; day: number }) => {
-    const m = paid.has(`${f.id}|${ym}`) ? addMonths(ym, 1) : ym;
-    const due = dueDate(m, f.day);
-    return { month: m, due, days: daysBetween(today, due) };
+  const isPaid = (f: Fixed, key: string) => paid.has(`${f.id}|${key}`);
+  const localDate = (iso: string) => {
+    try { return new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(new Date(iso)); }
+    catch { return String(iso).slice(0, 10); }
+  };
+  // Una ocurrencia cuenta si ya está pagada, o si no es anterior al mes de inicio del control (settings.start_month)
+  // ni a la creación del fijo (en mensual sí cuenta el mes en que se creó). Igual que counts() en js/app.js.
+  const startMonth: string | null = st?.start_month || null;
+  const counts = (f: Fixed, o: { key: string; due: string }) => {
+    if (isPaid(f, o.key)) return true;
+    if (startMonth && o.due < `${startMonth}-01`) return false;
+    const since = localDate(f.created_at);
+    return o.due >= since || (freqOf(f) === "mensual" && o.key === since.slice(0, 7));
+  };
+  const pendingOcc = (f: Fixed) =>
+    [addMonths(ym, -1), ym, addMonths(ym, 1), addMonths(ym, 2)].flatMap((m) => occurrences(f, m))
+      .filter((o) => counts(f, o) && !isPaid(f, o.key));
+  // La más antigua sin pagar de este mes en adelante
+  const nextPending = (f: Fixed) => {
+    const pend = pendingOcc(f);
+    const o = pend.find((x) => x.due >= `${ym}-01`) ?? pend.at(-1) ?? occurrences(f, addMonths(ym, 3))[0];
+    return { key: o.key, due: o.due, days: daysBetween(today, o.due) };
+  };
+  const budgetText = (f: Fixed, spent: number) => {
+    const p = budgetPeriod(f, today), left = Number(f.amount) - spent;
+    return left >= 0 ? `${f.name}: quedan ${money(left)} ${p.label}` : `⚠️ ${f.name}: te pasaste ${money(-left)} ${p.label}`;
+  };
+  const spentIn = async (f: Fixed) => {
+    const p = budgetPeriod(f, today);
+    const { data } = await db.from("movements").select("amount").eq("user_id", uid).eq("type", "gasto")
+      .eq("category_id", f.category_id).gte("date", p.start).lte("date", p.end);
+    return (data ?? []).reduce((s, m) => s + Number(m.amount), 0);
   };
 
   // ---------- Listas para los menús del Atajo ----------
@@ -154,17 +228,31 @@ Deno.serve(async (req) => {
     if (r.startsWith("aviso")) {
       const out: string[] = [];
       for (const f of fx) {
-        const n = nextPending(f);
-        // también avisa si quedó sin pagar el mes anterior
-        const prev = addMonths(ym, -1);
-        const prevDue = dueDate(prev, f.day);
-        if (!paid.has(`${f.id}|${prev}`) && Date.parse(f.created_at) < Date.parse(prevDue + "T00:00:00Z")) {
-          out.push(`⚠️ ${f.name}: quedó pendiente de ${MESES[Number(prev.slice(5)) - 1]} (${money(Number(f.amount))})`);
+        const pend = pendingOcc(f);
+        const amt = money(Number(f.amount));
+        if (isIncome(f)) {
+          // Ingresos: aviso el día que llega y si quedó alguno sin registrar
+          for (const o of pend.filter((x) => x.due < today).slice(-3)) out.push(`💼 ${f.name} del ${fmtDate(o.due)}: ¿ya llegó? Regístralo (${amt})`);
+          const n = pend.find((x) => x.due >= today);
+          if (n && n.due === today) out.push(`💼 Hoy llega ${f.name} (${amt})`);
+          continue;
         }
-        if (n.days > f.remind_days) continue;
-        const when = n.days < 0 ? `venció hace ${-n.days} día${n.days === -1 ? "" : "s"}`
-          : n.days === 0 ? "vence HOY" : n.days === 1 ? "vence mañana" : `vence en ${n.days} días`;
-        out.push(`${n.days <= 0 ? "⚠️" : "🔔"} ${f.name} ${when} (${money(Number(f.amount))})`);
+        // Pagos atrasados (hasta 3) y el siguiente si está dentro de los días de aviso
+        for (const o of pend.filter((x) => x.due < today).slice(-3)) {
+          const d = -daysBetween(today, o.due);
+          out.push(`⚠️ ${f.name} ${freqOf(f) === "mensual" ? `de ${MESES[Number(o.key.slice(5, 7)) - 1]}` : `del ${fmtDate(o.due)}`}: venció hace ${d} día${d === 1 ? "" : "s"} (${amt})`);
+        }
+        const n = pend.find((x) => x.due >= today);
+        if (!n) continue;
+        const days = daysBetween(today, n.due);
+        if (days > f.remind_days) continue;
+        const when = days === 0 ? "vence HOY" : days === 1 ? "vence mañana" : `vence en ${days} días`;
+        out.push(`${days === 0 ? "⚠️" : "🔔"} ${f.name} ${when} (${amt})`);
+      }
+      // Presupuestos excedidos o casi agotados (≥ 90 %)
+      for (const f of budgets) {
+        const spent = await spentIn(f);
+        if (spent >= Number(f.amount) * 0.9 && Number(f.amount) > 0) out.push("🎯 " + budgetText(f, spent));
       }
       return text(out.join("\n"));
     }
@@ -176,13 +264,18 @@ Deno.serve(async (req) => {
         if (m.type === "ingreso") inc += Number(m.amount);
         if (m.type === "gasto") exp += Number(m.amount);
       }
-      const pend = fx.filter((f) => !paid.has(`${f.id}|${ym}`));
-      const pendAmt = pend.reduce((s, f) => s + Number(f.amount), 0);
-      return text(
-        `📊 ${MESES[Number(ym.slice(5)) - 1]}\n` +
-        `Ingresos: ${money(inc)}\nGastos: ${money(exp)}\nDisponible: ${money(inc - exp)}\n` +
-        (pend.length ? `Pagos fijos pendientes: ${pend.length} (${money(pendAmt)})` : "✅ Pagos fijos del mes al corriente"),
-      );
+      // Ocurrencias de este mes sin marcar
+      const pendOf = (list: Fixed[]) => list.flatMap((f) => occurrences(f, ym).filter((o) => counts(f, o) && !isPaid(f, o.key)).map(() => Number(f.amount)));
+      const pend = pendOf(fx.filter((f) => !isIncome(f))), pendInc = pendOf(fx.filter(isIncome));
+      const sum = (a: number[]) => a.reduce((s, v) => s + v, 0);
+      const lines = [
+        `📊 ${MESES[Number(ym.slice(5)) - 1]}`,
+        `Ingresos: ${money(inc)}`, `Gastos: ${money(exp)}`, `Disponible: ${money(inc - exp)}`,
+        pend.length ? `Pagos fijos pendientes: ${pend.length} (${money(sum(pend))})` : "✅ Pagos fijos del mes al corriente",
+      ];
+      if (pendInc.length) lines.push(`Ingresos fijos por recibir: ${money(sum(pendInc))}`);
+      for (const f of budgets) lines.push("🎯 " + budgetText(f, await spentIn(f)));
+      return text(lines.join("\n"));
     }
     return text("Resumen desconocido. Usa: avisos o mes.", 400);
   }
@@ -211,7 +304,7 @@ Deno.serve(async (req) => {
     if (!(amount > 0)) amount = Number(f.amount);
     const n = nextPending(f);
     Object.assign(row, {
-      type: "gasto", fixed_id: f.id, fixed_for: n.month,
+      type: isIncome(f) ? "ingreso" : "gasto", fixed_id: f.id, fixed_for: n.key,
       category_id: f.category_id, account_id: account?.id ?? f.account_id,
       note: row.note ?? f.name,
     });
@@ -241,7 +334,12 @@ Deno.serve(async (req) => {
   }
   const catName = cat.find((c) => c.id === row.category_id)?.name;
   const accName = acc.find((a) => a.id === row.account_id)?.name;
-  const label = row.fixed_id ? "Pago registrado" : tipo === "ingreso" ? "Ingreso guardado" : tipo === "transferencia" ? "Transferencia guardada" : "Gasto guardado";
+  const label = row.fixed_id ? (row.type === "ingreso" ? "Ingreso fijo registrado" : "Pago registrado") : tipo === "ingreso" ? "Ingreso guardado" : tipo === "transferencia" ? "Transferencia guardada" : "Gasto guardado";
   const parts = [money(amount), row.note, catName, accName].filter(Boolean).join(" · ");
-  return text(`✅ ${label}: ${parts}\nEste mes: gastos ${money(exp)} · disponible ${money(inc - exp)}`);
+  // Si el gasto cae en una categoría con presupuesto, dice cuánto queda
+  const extra: string[] = [];
+  if (row.type === "gasto") {
+    for (const f of budgets.filter((b) => b.category_id && b.category_id === row.category_id)) extra.push("🎯 " + budgetText(f, await spentIn(f)));
+  }
+  return text(`✅ ${label}: ${parts}\nEste mes: gastos ${money(exp)} · disponible ${money(inc - exp)}` + (extra.length ? "\n" + extra.join("\n") : ""));
 });

@@ -285,3 +285,5 @@ button { cursor: pointer; }
 .kv div { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; }
 .kv b { font-family: ui-monospace, monospace; }
 .debt-bar { margin-top: 6px; }
+.budget-bar { margin-top: 6px; }
+.progress.warn > i { background: var(--warn); }
