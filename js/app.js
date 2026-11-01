@@ -803,25 +803,25 @@
     const day = Number(t.slice(8)), dim = daysInMonth(ym);
     // Pagos que vencen (hoy, mañana, atrasados)
     for (const r of upcomingList(3).soon) {
-      if (isIncome(r.f)) { if (r.days <= 0) out.push({ lvl: "info", icon: "briefcase", txt: `${r.days < 0 ? "¿Ya te llegó" : "Hoy llega"} <b>${esc(r.f.name)}</b>${r.days < 0 ? ` del ${fmtShort(r.due)}?` : ""} (${money(Number(r.f.amount))})` }); continue; }
+      if (isIncome(r.f)) { if (r.days <= 0) out.push({ go: `data-pay-actions="${r.f.id}"`, lvl: "info", icon: "briefcase", txt: `${r.days < 0 ? "¿Ya te llegó" : "Hoy llega"} <b>${esc(r.f.name)}</b>${r.days < 0 ? ` del ${fmtShort(r.due)}?` : ""} (${money(Number(r.f.amount))})` }); continue; }
       const when = r.days < 0 ? `venció hace ${-r.days} día${r.days === -1 ? "" : "s"}` : r.days === 0 ? "vence <b>hoy</b>" : r.days === 1 ? "vence <b>mañana</b>" : `vence en ${r.days} días`;
-      out.push({ lvl: r.days <= 0 ? "bad" : "warn", icon: "bell", txt: `Tu pago de <b>${esc(r.f.name)}</b> ${when} (${money(Number(r.f.amount))})` });
+      out.push({ go: `data-pay-actions="${r.f.id}"`, lvl: r.days <= 0 ? "bad" : "warn", icon: "bell", txt: `Tu pago de <b>${esc(r.f.name)}</b> ${when} (${money(Number(r.f.amount))})` });
     }
     // Tarjetas: fecha límite cercana y uso alto
     for (const c of creditSummary().cards) {
       const stA = cardStatement(c.a);
       if (stA && stA.payBy && stA.statement > 0) {
         const dd = daysBetween(today(), stA.payBy);
-        if (dd <= 5) out.push({ lvl: dd <= 1 ? "bad" : "warn", icon: "card", txt: `Paga <b>${money(stA.statement)}</b> de ${esc(c.a.name)} ${dd < 0 ? `(venció hace ${-dd} día${dd === -1 ? "" : "s"})` : dd === 0 ? "hoy" : dd === 1 ? "mañana" : `en ${dd} días`} para no generar intereses` });
-      } else if (!stA && c.used > 0 && c.dueDays != null && c.dueDays <= 5) out.push({ lvl: c.dueDays <= 1 ? "bad" : "warn", icon: "card", txt: `Fecha límite de <b>${esc(c.a.name)}</b> ${c.dueDays === 0 ? "es hoy" : c.dueDays === 1 ? "es mañana" : `en ${c.dueDays} días`}: debes ${money(c.used)}` });
-      if (c.limit && c.pct >= 0.8) out.push({ lvl: c.pct >= 1 ? "bad" : "warn", icon: "card", txt: `Usas el <b>${Math.round(c.pct * 100)}%</b> del crédito de ${esc(c.a.name)}` });
+        if (dd <= 5) out.push({ go: `data-card-go="${c.a.id}"`, lvl: dd <= 1 ? "bad" : "warn", icon: "card", txt: `Paga <b>${money(stA.statement)}</b> de ${esc(c.a.name)} ${dd < 0 ? `(venció hace ${-dd} día${dd === -1 ? "" : "s"})` : dd === 0 ? "hoy" : dd === 1 ? "mañana" : `en ${dd} días`} para no generar intereses` });
+      } else if (!stA && c.used > 0 && c.dueDays != null && c.dueDays <= 5) out.push({ go: `data-card-go="${c.a.id}"`, lvl: c.dueDays <= 1 ? "bad" : "warn", icon: "card", txt: `Fecha límite de <b>${esc(c.a.name)}</b> ${c.dueDays === 0 ? "es hoy" : c.dueDays === 1 ? "es mañana" : `en ${c.dueDays} días`}: debes ${money(c.used)}` });
+      if (c.limit && c.pct >= 0.8) out.push({ go: `data-card-go="${c.a.id}"`, lvl: c.pct >= 1 ? "bad" : "warn", icon: "card", txt: `Usas el <b>${Math.round(c.pct * 100)}%</b> del crédito de ${esc(c.a.name)}` });
     }
     // Presupuestos
     for (const f of S.fixed.filter((x) => x.active && isBudget(x))) {
-      const u = budgetUse(f), lvl = WCFin.budgetLevel(u.pct);
-      if (lvl > 100) out.push({ lvl: "bad", icon: "target", txt: `Te pasaste <b>${money(-u.left)}</b> del presupuesto de ${esc(f.name)}` });
-      else if (lvl === 100) out.push({ lvl: "bad", icon: "target", txt: `Llegaste al <b>100%</b> del presupuesto de ${esc(f.name)}` });
-      else if (lvl >= 50) out.push({ lvl: lvl >= 90 ? "bad" : lvl >= 75 ? "warn" : "info", icon: "target", txt: `Ya utilizaste el <b>${Math.round(u.pct * 100)}%</b> de tu presupuesto de ${esc(f.name)}` });
+      const u = budgetUse(f), lvl = WCFin.budgetLevel(u.pct), push = (a) => out.push({ go: `data-budget-go="${f.id}"`, ...a });
+      if (lvl > 100) push({ lvl: "bad", icon: "target", txt: `Te pasaste <b>${money(-u.left)}</b> del presupuesto de ${esc(f.name)}` });
+      else if (lvl === 100) push({ lvl: "bad", icon: "target", txt: `Llegaste al <b>100%</b> del presupuesto de ${esc(f.name)}` });
+      else if (lvl >= 50) push({ lvl: lvl >= 90 ? "bad" : lvl >= 75 ? "warn" : "info", icon: "target", txt: `Ya utilizaste el <b>${Math.round(u.pct * 100)}%</b> de tu presupuesto de ${esc(f.name)}` });
     }
     // Categorías: este mes vs mismos días del mes pasado
     const prev = addMonths(ym, -1), cutPrev = dueDate(prev, day);
@@ -829,12 +829,12 @@
     const now = sumBy(`${ym}-01`, t), before = sumBy(`${prev}-01`, cutPrev);
     const small = S.settings.currency === "MXN" ? 500 : 30;
     const ups = Object.entries(now).map(([id, v]) => [id, v - (before[id] || 0), before[id] || 0]).filter(([, d, b]) => b > 0 && d >= small && d / b >= 0.2).sort((a, b) => b[1] - a[1]).slice(0, 2);
-    for (const [id, d] of ups) out.push({ lvl: "warn", icon: "trendUp", txt: `Has gastado <b>${money(d)}</b> más en ${esc(cat(id)?.name || "sin categoría")} que el mes pasado (mismos días)` });
+    for (const [id, d] of ups) out.push({ go: `data-catgo="${id}"`, lvl: "warn", icon: "trendUp", txt: `Has gastado <b>${money(d)}</b> más en ${esc(cat(id)?.name || "sin categoría")} que el mes pasado (mismos días)` });
     // Proyección de fin de mes
     if (day >= 3 && day < dim) {
       const tt = totals(ym), carry = carryIn(ym).amount, cm = commitments(ym);
       const varRate = tt.varExp / day, projected = carry + tt.net + cm.incomes - cm.bills - varRate * (dim - day);
-      out.push({ lvl: projected < 0 ? "bad" : "good", icon: projected < 0 ? "trendDown" : "trendUp", txt: `Si mantienes este ritmo, terminarás el mes con <b class="${projected < 0 ? "neg" : "pos"}">${money(projected)}</b> disponibles` });
+      out.push({ go: `data-goto="balance"`, lvl: projected < 0 ? "bad" : "good", icon: projected < 0 ? "trendDown" : "trendUp", txt: `Si mantienes este ritmo, terminarás el mes con <b class="${projected < 0 ? "neg" : "pos"}">${money(projected)}</b> disponibles` });
     }
     return out;
   }
@@ -926,7 +926,7 @@
     // Alertas inteligentes
     const alerts = buildAlerts();
     if (alerts.length) html += `<section class="card tone" style="--t:#ffb36b"><div class="c-head"><span class="c-title">Alertas</span>${pill(String(alerts.length), "#ffb36b", "bell")}</div>
-      <ul class="alerts">${alerts.map((a) => `<li>${tile(a.icon, ALERT_COLOR[a.lvl], "sm")}<span>${a.txt}</span></li>`).join("")}</ul></section>`;
+      <ul class="alerts">${alerts.map((a) => `<li class="${a.go ? "tap" : ""}" ${a.go || ""}>${tile(a.icon, ALERT_COLOR[a.lvl], "sm")}<span>${a.txt}</span>${a.go ? ico("chevR", "i-sm a-go") : ""}</li>`).join("")}</ul></section>`;
 
     // 2) Cuentas
     const accs = activeAccs();
@@ -2939,7 +2939,7 @@
   document.addEventListener("touchmove", (e) => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
   // (el doble toque ya no hace zoom gracias a touch-action en el CSS)
   $("#view").addEventListener("click", (e) => {
-    const t = e.target.closest("[data-mov],[data-mov-open],[data-pay],[data-goto],[data-new-fixed],[data-edit-fixed],[data-filter],[data-catgo],[data-credit],[data-export],[data-acc-detail],[data-new-acc],[data-pay-actions],[data-new-budget],[data-new-goal],[data-goal],[data-new-debt],[data-debt],[data-new-sub],[data-period],[data-movacc],[data-clear-acc],[data-new-card],[data-cards-from-pays],[data-plan],[data-plan-new]");
+    const t = e.target.closest("[data-mov],[data-mov-open],[data-pay],[data-goto],[data-new-fixed],[data-edit-fixed],[data-filter],[data-catgo],[data-credit],[data-export],[data-acc-detail],[data-new-acc],[data-pay-actions],[data-new-budget],[data-new-goal],[data-goal],[data-new-debt],[data-debt],[data-new-sub],[data-period],[data-movacc],[data-clear-acc],[data-new-card],[data-cards-from-pays],[data-plan],[data-plan-new],[data-card-go],[data-budget-go]");
     if (!t) return;
     if (t.dataset.pay) payFixed(t.dataset.pay, t.dataset.month);
     else if (t.dataset.movOpen) openEntry({ id: t.dataset.movOpen });
@@ -2949,6 +2949,11 @@
     else if (t.dataset.accDetail) accountDetail(t.dataset.accDetail);
     else if (t.hasAttribute("data-new-acc")) openItem("accounts", null);
     else if (t.hasAttribute("data-new-card")) openItem("accounts", null, null, "credito");
+    else if (t.dataset.cardGo || t.dataset.budgetGo) {         // desde una alerta: abre la sección y resalta el elemento
+      const id = t.dataset.cardGo || t.dataset.budgetGo, sel = t.dataset.cardGo ? `[data-credit="${id}"]` : `[data-edit-fixed="${id}"]`;
+      goTab(t.dataset.cardGo ? "tarjetas" : "presupuestos");
+      setTimeout(() => { const el = $(`#view ${sel}`); if (el) { el.scrollIntoView({ block: "center", behavior: "smooth" }); el.classList.add("flash"); setTimeout(() => el.classList.remove("flash"), 1600); } }, 80);
+    }
     else if (t.dataset.plan) planForm(null, t.dataset.plan);
     else if (t.dataset.planNew) planForm(t.dataset.planNew);
     else if (t.hasAttribute("data-cards-from-pays")) cardsFromPayments();

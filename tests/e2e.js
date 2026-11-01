@@ -116,7 +116,15 @@ process.on("unhandledRejection", (e) => { check("la prueba terminó sin interrup
     await p.evaluate(() => document.querySelectorAll("dialog[open]").forEach((d) => d.close())); await p.waitForTimeout(150);
     check("configuración abre, guarda «¿Cuál es tu nombre?», sin saludo ni barrita", noAppName && handles === 0 && kept === "Héctor Ayón" && opened && !(await p.$(".greet")), `${kept} / barritas ${handles}`);
   }
-    // Menú inferior con todas las secciones
+    // Alertas: tocar una lleva a su elemento (pago → acciones para pagar; tarjeta → su tarjeta)
+  {
+    const al = await p.$$eval(".alerts li.tap", (ls) => ls.map((l) => [...l.attributes].map((x) => x.name).join(" ")));
+    const payAlert = await p.$(".alerts li[data-pay-actions]");
+    let opened = false;
+    if (payAlert) { await payAlert.click(); await p.waitForTimeout(300); opened = !!(await p.$("#dynBody [data-a=pay]")); await p.evaluate(() => document.querySelectorAll("dialog[open]").forEach((d) => d.close())); await p.waitForTimeout(150); }
+    check("alertas: se pueden tocar y llevan al pago para marcarlo", al.length > 0 && opened, al.join(" | "));
+  }
+  // Menú inferior con todas las secciones
   {
     const tabs = await p.$$eval(".tabbar [data-tab]", (bs) => bs.map((b) => b.dataset.tab));
     await p.click('.tabbar [data-tab="suscripciones"]'); await p.waitForTimeout(250);

@@ -617,3 +617,10 @@ html.masked .eye .e-hide { display: grid; }
 .plan-add { justify-self: start; }
 .c-title:has(.eye) { display: inline-flex; align-items: center; white-space: nowrap; }
 .big .priv .pm { font-size: .8em; letter-spacing: .02em; }
+/* Alertas que llevan a su elemento */
+.alerts li.tap { cursor: pointer; border-radius: 14px; margin: -4px -6px; padding: 4px 6px; transition: background .15s; }
+.alerts li.tap:active { background: var(--surface-2); }
+.alerts li > span { flex: 1; }
+.alerts .a-go { flex: none; color: var(--muted); }
+.flash { animation: wcFlash 1.6s ease; }
+@keyframes wcFlash { 0%, 60% { box-shadow: 0 0 0 2px var(--accent); } 100% { box-shadow: 0 0 0 0 transparent; } }
