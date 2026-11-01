@@ -72,7 +72,7 @@ async function addEntry(p, { type = "gasto", amount, cat, acc, to, note, usd = f
 const bal = (p, id) => p.evaluate((id) => { const el = [...document.querySelectorAll(".acc-card")].find((x) => x.innerText.includes(id)); return el ? el.innerText : ""; }, id);
 
 const report = () => { const bad = results.filter((r) => r[0] !== "OK "); for (const r of results) console.log(r[0], r[1], r[2] ? "· " + r[2] : ""); console.log(`\n${results.length - bad.length}/${results.length} pruebas correctas`); return bad.length; };
-process.on("unhandledRejection", (e) => { console.log("ERROR:", String(e.message || e).split("\n")[0]); report(); process.exit(1); });
+process.on("unhandledRejection", (e) => { check("la prueba terminó sin interrupciones", false, String(e.message || e).split("\n")[0]); report(); process.exit(1); });
 (async () => {
   const browser = await chromium.launch();
   // ---------- iPhone, base v5 ----------
@@ -167,7 +167,7 @@ process.on("unhandledRejection", (e) => { console.log("ERROR:", String(e.message
   check("18. al reconectar se sincroniza", server.data.movements.filter((m) => m.note === "Sin internet").length === 1);
   // Error del servidor: la operación se conserva con estado error
   check("sin errores de JavaScript en el recorrido", !errs.length, errs.join(" | "));
-  await p.screenshot({ path: process.env.SHOTS ? process.env.SHOTS + "/e2e-iphone.png" : "/dev/null" });
+  if (process.env.SHOTS) await p.screenshot({ path: process.env.SHOTS + "/e2e-iphone.png" });
   // Persistencia local: recargar conserva datos y cola
   await ctx.close();
 
