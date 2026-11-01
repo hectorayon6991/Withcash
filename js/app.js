@@ -3139,21 +3139,24 @@
     $("#appShell").hidden = false;
     const hadCache = await loadCache();
     applyTheme();
-    if (hadCache) render();
+    if (hadCache) { render(); hideSplash(); }
     else $("#view").innerHTML = `<div class="empty"><div class="spinner"></div>Cargando…</div>`;
     await refresh(true);
-    render();
+    render(); hideSplash();
     // Accesos directos: ?nuevo=gasto | ingreso
     const p = new URLSearchParams(location.search);
     if (p.get("nuevo")) { openEntry({ type: p.get("nuevo") === "ingreso" ? "ingreso" : "gasto" }); history.replaceState(null, "", location.pathname); }
   }
   function showAuth(message) {
-    S.user = null;
+    S.user = null; hideSplash();
     $("#appShell").hidden = true;
     $("#authScreen").hidden = false;
     if (message) $("#authMsg").textContent = message;
   }
 
+  // Quita la pantalla de arranque con un desvanecido (una sola vez)
+  function hideSplash() { const sp = $("#splash"); if (!sp || sp.classList.contains("out")) return; sp.classList.add("out"); setTimeout(() => sp.remove(), 450); }
+  setTimeout(hideSplash, 4000);                                   // por si algo tarda: nunca se queda atorada
   async function init() {
     if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
     if (navigator.storage?.persist) navigator.storage.persist().catch(() => {});

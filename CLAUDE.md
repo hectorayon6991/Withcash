@@ -55,5 +55,5 @@ https://hectorayon6991.github.io/Withcash/
 - Fijos con `auto = true` se registran solos (`autoPostRecurring`); el índice único `(fixed_id, fixed_for)` evita duplicados.
 - Multi-moneda: `movements.amount` siempre en la moneda principal; si se capturó en dólares guarda `currency = 'USD'`
   y `orig_amount`. Tipo de cambio en `settings.usd_rate`.
-- Bloqueo con PIN / Face ID (WebAuthn) solo en el dispositivo (`localStorage.wc_lock`). Íconos propios en `js/icons.js`.
+- Bloqueo con PIN / Face ID (WebAuthn) solo en el dispositivo (`localStorage.wc_lock`). Íconos propios en `js/icons.js`. Logo «WC» sin fondo en `icons/logo.png` (pantalla de arranque `#splash`, acceso y bloqueo); íconos de la app (`apple-touch-icon`, `icon-192/512`, `maskable-512`, `favicon-64`) = logo sobre negro (iOS no admite íconos transparentes).
 - Las categorías y cuentas por defecto las crea la app la primera vez que entra el usuario (`seedDefaults`).

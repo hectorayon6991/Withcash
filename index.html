@@ -11,16 +11,18 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
   <meta name="apple-mobile-web-app-title" content="WithCash">
   <link rel="manifest" href="manifest.webmanifest">
-  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="icon" href="icons/favicon-64.png" type="image/png">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-  <link rel="stylesheet" href="css/styles.css?v=2.7.0">
+  <link rel="stylesheet" href="css/styles.css?v=2.8.0">
 </head>
 <body>
+  <!-- Pantalla de arranque con el logo (se quita al terminar de cargar) -->
+  <div id="splash" class="splash" aria-hidden="true"><img src="icons/logo.png" alt="" width="220" height="97"></div>
   <!-- Pantalla de acceso -->
   <section id="authScreen" class="auth" hidden>
     <div class="auth-box">
-      <img src="icons/icon.svg" alt="" width="72" height="72">
-      <h1>WithCash</h1>
+      <img class="brand-logo" src="icons/logo.png" alt="WithCash" width="200" height="88">
+      <h1 class="sr-only">WithCash</h1>
       <p class="hint">Tus gastos, pagos fijos y ahorro en un solo lugar.</p>
       <form id="authForm">
         <label class="field"><span>Correo</span><input id="authEmail" type="email" autocomplete="email" required></label>
@@ -355,7 +357,7 @@
 
   <!-- Bloqueo con PIN / Face ID -->
   <div id="lockScreen" class="lock" hidden>
-    <img src="icons/icon.svg" alt="" width="56" height="56">
+    <img class="lock-logo" src="icons/logo.png" alt="WithCash" width="140" height="62">
     <p id="lockMsg">Ingresa tu PIN</p>
     <div class="pin-dots" id="pinDots"><i></i><i></i><i></i><i></i></div>
     <div class="keypad" id="keypad">
@@ -368,11 +370,11 @@
   </div>
   <div id="printArea" class="print-area" aria-hidden="true"></div>
 
-  <script src="js/icons.js?v=2.7.0"></script>
-  <script src="js/finance.js?v=2.7.0"></script>
-  <script src="js/store.js?v=2.7.0"></script>
-  <script src="js/config.js?v=2.7.0"></script>
+  <script src="js/icons.js?v=2.8.0"></script>
+  <script src="js/finance.js?v=2.8.0"></script>
+  <script src="js/store.js?v=2.8.0"></script>
+  <script src="js/config.js?v=2.8.0"></script>
   <script src="js/vendor/supabase.js"></script>
-  <script src="js/app.js?v=2.7.0"></script>
+  <script src="js/app.js?v=2.8.0"></script>
 </body>
 </html>
