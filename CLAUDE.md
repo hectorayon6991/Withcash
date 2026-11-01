@@ -5,7 +5,7 @@ Publicada con GitHub Pages (workflow `.github/workflows/pages.yml`, se despliega
 https://hectorayon6991.github.io/Withcash/
 
 ## Supabase (proyecto `withcash`, ref `snccrdjtoxuwefncwhyv`) — ya conectado
-- Migraciones 0001–0005 aplicadas (la 0005 la aplicó el propietario desde el SQL Editor). La 0006 (`card_plans`, compras a meses) se aplica igual; sin ella `S.dbv = 5` y la app oculta lo de meses. Edge Function `atajo` desplegada con **verify_jwt = false**
+- Migraciones 0001–0005 aplicadas (la 0005 la aplicó el propietario desde el SQL Editor). La 0006 (`card_plans`, compras a meses) también la aplicó el propietario (verificada); sin ella `S.dbv = 5` y la app oculta lo de meses. Edge Function `atajo` desplegada con **verify_jwt = false**
   (se autentica con la llave personal `?k=`, cuyo hash SHA-256 está en `api_keys`).
 - `js/config.js` ya tiene la URL y la clave publicable. Site URL configurada a la URL de GitHub Pages.
 - Subir la versión de caché en `sw.js` (`VERSION`) cada vez que cambien los archivos de la app.
