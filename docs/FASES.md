@@ -49,6 +49,7 @@ Estado real del proyecto. Se actualiza en cada entrega.
 
 ## Pendientes que dependen del propietario
 
+(Limpieza hecha el 1 nov 2026: usuario de prueba y `pg_net` eliminados.)
+
 2. En Supabase → Authentication: activar *Leaked password protection*.
-3. Borrar el usuario de prueba y la extensión `pg_net` (requiere confirmación).
 4. Probar en sus dispositivos reales.
