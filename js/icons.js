@@ -35,6 +35,21 @@
     zap: '<path d="M13 3 5.5 13.5H12L11 21l7.5-10.5H12z"/>',
     question: `<circle cx="12" cy="12" r="8.5"/><path d="M9.6 9.5a2.5 2.5 0 1 1 3.4 2.3c-.6.3-1 .9-1 1.6v.6"/>${dot(12, 16.8, 0.9)}`,
     wallet: '<path d="M4 7.5A2.5 2.5 0 0 1 6.5 5H18v3"/><rect x="4" y="8" width="16.5" height="11" rx="2.5"/><path d="M16 13.5h1.5"/>',
+    grid: '<rect x="4" y="4" width="6.5" height="6.5" rx="2"/><rect x="13.5" y="4" width="6.5" height="6.5" rx="2"/><rect x="4" y="13.5" width="6.5" height="6.5" rx="2"/><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="2"/>',
+    search: '<circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/>',
+    camera: '<path d="M4 8.5A2.5 2.5 0 0 1 6.5 6h1.8l1.5-2h4.4l1.5 2h1.8A2.5 2.5 0 0 1 20 8.5v9a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 17.5z"/><circle cx="12" cy="12.8" r="3.5"/>',
+    clip: '<path d="m20 11.5-8 8a5 5 0 0 1-7.1-7.1l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4L15 7"/>',
+    moon: '<path d="M19.5 14.5A8 8 0 0 1 9.5 4.5a8 8 0 1 0 10 10z"/>',
+    sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/>',
+    lock: '<rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/>',
+    sync: '<path d="M4.5 12a7.5 7.5 0 0 1 13-5.1L19.5 9M19.5 4v5h-5M19.5 12a7.5 7.5 0 0 1-13 5.1L4.5 15M4.5 20v-5h5"/>',
+    pause: '<rect x="6.5" y="5" width="3.5" height="14" rx="1.2"/><rect x="14" y="5" width="3.5" height="14" rx="1.2"/>',
+    play: '<path d="M7.5 5.5v13l11-6.5z"/>',
+    x: '<path d="M6 6l12 12M18 6 6 18"/>',
+    edit: '<path d="M4.5 19.5h4l10-10a2.8 2.8 0 0 0-4-4l-10 10z"/><path d="m13.5 6.5 4 4"/>',
+    history: '<path d="M4 12a8 8 0 1 0 2.4-5.7L4 8.5"/><path d="M4 4v4.5h4.5M12 8v4l3 2"/>',
+    handshake: '<path d="m3 11 4-4 4 2 3-2 3 1 4 4"/><path d="m7 7 0 0M3 11l5 5c.8.8 2 .8 2.8 0M10 13l3 3c.8.8 2 .8 2.8 0l3.2-3.2M12 11l3 3"/>',
+    filter: '<path d="M4 6h16M7 12h10M10 18h4"/>',
     // ---- Categorías / cuentas ----
     food: '<path d="M7 3.5v7.5M4.5 3.5v4.5a2.5 2.5 0 0 0 5 0V3.5M7 11v9.5"/><path d="M17 20.5V3.5c-2 0-3.5 2.5-3.5 6v3.5H17"/>',
     cart: '<path d="M3 4h2.5l2 11h10.5l2-8H6.5"/><circle cx="9.5" cy="19" r="1.4"/><circle cx="17" cy="19" r="1.4"/>',
@@ -96,7 +111,7 @@
   // Íconos que se pueden elegir para cuentas y categorías
   const PICKABLE = ["food", "cart", "car", "fuel", "home", "bulb", "card", "bank", "cash", "wallet", "school", "health", "film", "shirt",
     "child", "tv", "gift", "briefcase", "tag", "refund", "wifi", "drop", "phone", "music", "dumbbell", "racket", "coffee", "pet",
-    "piggy", "star", "target", "receipt", "box"];
+    "piggy", "star", "target", "receipt", "handshake", "lock", "box"];
 
   const sprite = `<svg xmlns="http://www.w3.org/2000/svg" style="position:absolute;width:0;height:0;overflow:hidden" aria-hidden="true">${
     Object.entries(P).map(([k, d]) => `<symbol id="i-${k}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${d}</symbol>`).join("")

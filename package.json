@@ -1,0 +1,10 @@
+{
+  "name": "withcash",
+  "private": true,
+  "description": "WithCash — administrador financiero personal (PWA sin compilación + Supabase)",
+  "scripts": {
+    "test": "node --test tests/finance.test.js",
+    "test:e2e": "node tests/e2e.js",
+    "serve": "python3 -m http.server 8765"
+  }
+}

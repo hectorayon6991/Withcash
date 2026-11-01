@@ -86,20 +86,42 @@ type Fixed = {
   id: string; name: string; kind: string; amount: number; frequency?: string | null;
   day: number | null; day2: number | null; weekday: number | null; remind_days: number;
   category_id: string | null; account_id: string | null; created_at: string;
+  start_date?: string | null; end_date?: string | null; paused?: boolean | null;
 };
+type Override = { fixed_id: string; occ_key: string; action: string; new_date: string | null };
+const STEP: Record<string, number> = { bimestral: 2, trimestral: 3, semestral: 6, anual: 12 };
+const monthsBetween = (a: string, b: string) => { const [y1, m1] = a.split("-").map(Number), [y2, m2] = b.split("-").map(Number); return (y2 - y1) * 12 + (m2 - m1); };
 const freqOf = (f: Fixed) => f.frequency || "mensual";
 const isBudget = (f: Fixed) => f.kind === "presupuesto";
 const isIncome = (f: Fixed) => f.kind === "ingreso";
-function occurrences(f: Fixed, ym: string) {
+// Igual que WCFin.occurrences en js/finance.js: frecuencias, reprogramaciones (move/skip) y fecha final
+function baseOccurrences(f: Fixed, ym: string): { key: string; due: string }[] {
   const fr = freqOf(f);
   if (fr === "mensual") return [{ key: ym, due: dueDate(ym, f.day ?? 1) }];
   if (fr === "quincenal") {
     return [...new Set([dueDate(ym, f.day || 15), dueDate(ym, f.day2 || 31)])].sort().map((d) => ({ key: d, due: d }));
   }
-  const out: { key: string; due: string }[] = [];
-  const first = `${ym}-01`;
-  for (let d = addDays(first, ((f.weekday ?? 1) - dow(first) + 7) % 7); d.startsWith(ym); d = addDays(d, 7)) out.push({ key: d, due: d });
-  return out;
+  if (fr === "semanal") {
+    const out: { key: string; due: string }[] = [];
+    const first = `${ym}-01`;
+    for (let d = addDays(first, ((f.weekday ?? 1) - dow(first) + 7) % 7); d.startsWith(ym); d = addDays(d, 7)) out.push({ key: d, due: d });
+    return out;
+  }
+  if (fr === "unico") return f.start_date && ymOf(f.start_date) === ym ? [{ key: f.start_date, due: f.start_date }] : [];
+  if (STEP[fr]) {
+    if (!f.start_date) return [];
+    const diff = monthsBetween(ymOf(f.start_date), ym);
+    return diff >= 0 && diff % STEP[fr] === 0 ? [{ key: ym, due: dueDate(ym, f.day || Number(f.start_date.slice(8))) }] : [];
+  }
+  return [];
+}
+let OVERRIDES: Record<string, Override> = {};
+function occurrences(f: Fixed, ym: string) {
+  return baseOccurrences(f, ym).flatMap((o) => {
+    const ov = OVERRIDES[`${f.id}|${o.key}`];
+    if (ov?.action === "skip") return [];
+    return [{ key: o.key, due: ov?.action === "move" && ov.new_date ? ov.new_date : o.due }];
+  }).filter((o) => !f.end_date || o.due <= f.end_date);
 }
 function budgetPeriod(f: Fixed, d: string) {
   const fr = freqOf(f), ym = ymOf(d);
@@ -166,6 +188,9 @@ Deno.serve(async (req) => {
   const ym = ymOf(today);
   const acc = accounts ?? [], cat = cats ?? [];
   const allFixed = (fixed ?? []) as Fixed[];
+  // Reprogramaciones (la tabla existe desde la migración 0005; si no, se ignora)
+  const { data: ovs } = await db.from("fixed_overrides").select("fixed_id,occ_key,action,new_date").eq("user_id", uid);
+  OVERRIDES = Object.fromEntries(((ovs ?? []) as Override[]).map((o) => [`${o.fixed_id}|${o.occ_key}`, o]));
   const fx = allFixed.filter((f) => !isBudget(f));          // pagos e ingresos fijos
   const budgets = allFixed.filter(isBudget);
 
@@ -183,6 +208,7 @@ Deno.serve(async (req) => {
   const startMonth: string | null = st?.start_month || null;
   const counts = (f: Fixed, o: { key: string; due: string }) => {
     if (isPaid(f, o.key)) return true;
+    if (f.paused) return false;
     if (startMonth && o.due < `${startMonth}-01`) return false;
     const since = localDate(f.created_at);
     return o.due >= since || (freqOf(f) === "mensual" && o.key === since.slice(0, 7));

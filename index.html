@@ -42,9 +42,11 @@
   <div id="appShell" hidden>
     <header class="topbar">
       <button class="month-btn" id="prevMonth" aria-label="Mes anterior"><svg class="i" aria-hidden="true"><use href="#i-chevL"></use></svg></button>
-      <div class="month-title" id="monthTitle">—</div>
+      <div class="month-title" id="monthTitle">—</div><span class="sync-dot ok" id="syncDot" title="Sincronizado"></span>
       <button class="month-btn" id="nextMonth" aria-label="Mes siguiente"><svg class="i" aria-hidden="true"><use href="#i-chevR"></use></svg></button>
-      <button class="icon-btn" id="openSettings" aria-label="Ajustes"><svg class="i" aria-hidden="true"><use href="#i-sliders"></use></svg></button>
+      <button class="icon-btn" id="openSearch" aria-label="Buscar"><svg class="i" aria-hidden="true"><use href="#i-search"></use></svg></button>
+      <button class="icon-btn" id="openMore" aria-label="Más secciones"><svg class="i" aria-hidden="true"><use href="#i-grid"></use></svg></button>
+      <button class="icon-btn" id="openSettings" aria-label="Configuración" hidden><svg class="i" aria-hidden="true"><use href="#i-sliders"></use></svg></button>
     </header>
     <div class="offline" id="offlineBar" hidden>Sin conexión · los cambios se guardarán al reconectar</div>
 
@@ -54,7 +56,7 @@
       <nav class="tabbar" aria-label="Secciones">
         <button data-tab="inicio" class="active" aria-label="Inicio"><svg class="i" aria-hidden="true"><use href="#i-home"></use></svg><span class="lbl">Inicio</span></button>
         <button data-tab="movimientos" aria-label="Movimientos"><svg class="i" aria-hidden="true"><use href="#i-receipt"></use></svg><span class="lbl">Movimientos</span></button>
-        <button data-tab="fijos" aria-label="Fijos"><svg class="i" aria-hidden="true"><use href="#i-calendar"></use></svg><span class="lbl">Fijos</span></button>
+        <button data-tab="fijos" aria-label="Pagos"><svg class="i" aria-hidden="true"><use href="#i-calendar"></use></svg><span class="lbl">Pagos</span></button>
         <button data-tab="balance" aria-label="Reportes"><svg class="i" aria-hidden="true"><use href="#i-chart"></use></svg><span class="lbl">Reportes</span></button>
       </nav>
       <button class="fab" id="fab" aria-label="Agregar movimiento"><svg class="i" aria-hidden="true"><use href="#i-plus"></use></svg></button>
@@ -80,10 +82,25 @@
       <div class="chips" id="catChips"></div>
       <label class="field"><span id="accLabel">Cuenta</span><select id="entryAccount"></select></label>
       <label class="field" id="toAccWrap" hidden><span>Hacia la cuenta</span><select id="entryToAccount"></select></label>
+      <label class="field"><span>Descripción</span><input id="entryNote" maxlength="120" placeholder="Ej. tacos, súper, gasolina"></label>
       <div class="row2">
-        <label class="field"><span>Nota</span><input id="entryNote" maxlength="120" placeholder="Ej. tacos, súper, gasolina"></label>
-        <label class="field narrow"><span>Fecha</span><input id="entryDate" type="date" required></label>
+        <label class="field"><span>Fecha</span><input id="entryDate" type="date" required></label>
+        <label class="field narrow"><span>Hora</span><input id="entryTime" type="time"></label>
       </div>
+      <details class="more-fields" id="entryMore">
+        <summary>Más detalles</summary>
+        <div class="row2">
+          <label class="field"><span>Método de pago</span>
+            <select id="entryMethod"><option value="">—</option><option value="efectivo">Efectivo</option><option value="debito">Débito</option><option value="credito">Crédito</option><option value="transferencia">Transferencia</option><option value="otro">Otro</option></select>
+          </label>
+          <label class="field"><span>Etiquetas</span><input id="entryTags" placeholder="viaje, trabajo"></label>
+        </div>
+        <label class="field"><span>Notas</span><textarea id="entryNotes" rows="2" maxlength="1000" placeholder="Opcional"></textarea></label>
+        <div class="ticket-row">
+          <label class="btn file-btn"><svg class="i" aria-hidden="true"><use href="#i-camera"></use></svg> <span id="ticketLbl">Foto del ticket</span><input type="file" id="entryTicket" accept="image/*,application/pdf" capture="environment" hidden></label>
+          <button type="button" class="btn ghost" id="ticketView" hidden><svg class="i" aria-hidden="true"><use href="#i-clip"></use></svg> Ver ticket</button>
+        </div>
+      </details>
       <p class="hint" id="entryFixedHint" hidden></p>
       <div class="sheet-actions">
         <button type="button" class="btn ghost danger" id="entryDelete" hidden>Eliminar</button>
@@ -108,6 +125,8 @@
               <option value="tarjeta">Tarjeta de crédito</option>
               <option value="suscripcion">Suscripción</option>
               <option value="deuda">Deuda / préstamo</option>
+              <option value="seguro">Seguro</option>
+              <option value="otro">Otro compromiso</option>
             </optgroup>
             <option value="ingreso">Ingreso fijo</option>
             <option value="presupuesto">Presupuesto</option>
@@ -118,6 +137,12 @@
             <option value="mensual">Mensual</option>
             <option value="quincenal">Quincenal</option>
             <option value="semanal">Semanal</option>
+            <option value="bimestral">Bimestral</option>
+            <option value="trimestral">Trimestral</option>
+            <option value="semestral">Semestral</option>
+            <option value="anual">Anual</option>
+            <option value="unico">Único (una vez)</option>
+            <option value="personalizado">Personalizado (rango)</option>
           </select>
         </label>
       </div>
@@ -131,6 +156,10 @@
             <option value="5">Viernes</option><option value="6">Sábado</option><option value="0">Domingo</option>
           </select>
         </label>
+      </div>
+      <div class="row2" id="fixedDates" hidden>
+        <label class="field"><span id="fixedStartLbl">Primera fecha</span><input id="fixedStart" type="date"></label>
+        <label class="field" id="fixedEndWrap"><span id="fixedEndLbl">Termina (opcional)</span><input id="fixedEnd" type="date"></label>
       </div>
       <p class="hint" id="fixedDayHint" hidden>31 = último día del mes (30, 31 o 28 según el mes).</p>
       <div class="row2">
@@ -149,6 +178,8 @@
         <label class="field"><span>Total de cuotas</span><input id="fixedInstallments" type="number" inputmode="numeric" min="1" placeholder="Ej. 24"></label>
         <label class="field narrow"><span>Ya pagadas</span><input id="fixedPaidBefore" type="number" inputmode="numeric" min="0" placeholder="0"></label>
       </div>
+      <label class="field"><span>Notas</span><input id="fixedNotes" maxlength="300" placeholder="Opcional"></label>
+      <label class="switch-row" id="fixedPausedWrap"><span><b>Pausado</b><br><small>No genera pendientes ni cargos mientras esté en pausa</small></span><input type="checkbox" id="fixedPaused" role="switch"></label>
       <label class="switch-row" id="fixedAutoWrap"><span><b>Registrar automáticamente</b><br><small>Se anota solo en su fecha (sin duplicados)</small></span><input type="checkbox" id="fixedAuto" role="switch"></label>
       <div class="row2">
         <label class="field"><span>Categoría</span><select id="fixedCat"></select></label>
@@ -172,10 +203,22 @@
       <label class="field" id="itemKindWrap"><span>Tipo</span><select id="itemKind"><option value="gasto">Gasto</option><option value="ingreso">Ingreso</option></select></label>
       <label class="field" id="itemAccKindWrap"><span>Tipo de cuenta</span>
         <select id="itemAccKind">
-          <option value="efectivo">Efectivo</option><option value="debito">Débito / banco</option>
-          <option value="credito">Tarjeta de crédito</option><option value="ahorro">Ahorro</option><option value="inversion">Inversión</option>
+          <option value="efectivo">Efectivo</option><option value="banco">Cuenta bancaria</option><option value="debito">Débito</option>
+          <option value="credito">Tarjeta de crédito</option><option value="ahorro">Ahorro</option><option value="inversion">Inversión</option><option value="otra">Personalizada</option>
         </select>
       </label>
+      <div id="accExtra">
+        <div class="row2">
+          <label class="field"><span>Institución</span><input id="itemInstitution" maxlength="40" placeholder="Opcional (ej. BBVA)"></label>
+          <label class="field narrow"><span>Moneda</span><select id="itemCurrency"></select></label>
+        </div>
+        <div class="row2">
+          <label class="field"><span>Fecha de apertura</span><input id="itemOpened" type="date"></label>
+          <label class="field narrow"><span>Estado</span><select id="itemStatus"><option value="activa">Activa</option><option value="archivada">Archivada</option></select></label>
+        </div>
+        <div class="field"><span>Color</span><div class="swatches" id="itemColors"></div></div>
+        <label class="switch-row"><span><b>Permitir saldo negativo</b><br><small>Si está apagado, la app avisa antes de dejarla en negativo</small></span><input type="checkbox" id="itemNegative" role="switch" checked></label>
+      </div>
       <label class="field" id="itemBalanceWrap"><span>Saldo inicial (lo que tiene hoy)</span><input id="itemBalance" inputmode="decimal" placeholder="0"></label>
       <div id="creditFields" hidden>
         <div class="row2">
@@ -213,6 +256,16 @@
         <button type="button" class="btn primary" id="openShortcuts">Configurar Atajos</button>
       </div>
 
+      <h3>Apariencia</h3>
+      <div class="seg three" id="setTheme"><button type="button" data-theme="oscuro">Oscuro</button><button type="button" data-theme="claro">Claro</button><button type="button" data-theme="sistema">Sistema</button></div>
+      <div class="row2" style="margin-top:10px">
+        <label class="field"><span>Nombre de la app</span><input id="setAppName" maxlength="30" placeholder="WithCash"></label>
+      </div>
+      <div class="row2">
+        <label class="field"><span>Formato de fecha</span><select id="setDateFmt"><option value="dd/mm/aaaa">dd/mm/aaaa</option><option value="aaaa-mm-dd">aaaa-mm-dd</option><option value="mm/dd/aaaa">mm/dd/aaaa</option></select></label>
+        <label class="field narrow"><span>Hora</span><select id="setTimeFmt"><option value="24h">24 h</option><option value="12h">12 h</option></select></label>
+      </div>
+
       <h3>Control de fijos</h3>
       <label class="field"><span>Llevar el control desde</span><select id="setStartMonth"></select></label>
       <p class="hint">Los pagos e ingresos fijos de antes de ese mes no aparecen como vencidos ni pendientes.</p>
@@ -232,6 +285,16 @@
       <label class="switch-row"><span><b>Bloquear con PIN</b><br><small>Se pide al abrir la app o al volver después de 1 minuto</small></span><input type="checkbox" id="lockPinOn" role="switch"></label>
       <label class="switch-row" id="lockBioWrap" hidden><span><b>Desbloquear con Face ID</b><br><small>Usa Face ID o Touch ID de este iPhone</small></span><input type="checkbox" id="lockBioOn" role="switch"></label>
       <button type="button" class="btn block" id="lockChange" hidden>Cambiar PIN</button>
+      <label class="field" style="margin-top:10px"><span>Bloqueo automático por inactividad</span>
+        <select id="setAutoLock"><option value="1">1 minuto</option><option value="5">5 minutos</option><option value="15">15 minutos</option><option value="0">Solo al abrir la app</option></select></label>
+
+      <h3>Notificaciones</h3>
+      <p class="hint" id="notifyHint">Recordatorios en este dispositivo cuando abres la app (pagos, vencidos, presupuestos, tarjetas y metas).</p>
+      <div class="chips" id="notifyPrefs"></div>
+      <button type="button" class="btn block" id="notifyEnable"><svg class="i" aria-hidden="true"><use href="#i-bell"></use></svg> Permitir notificaciones</button>
+
+      <h3>Sincronización</h3>
+      <div class="sync-box" id="syncBox"></div>
 
       <h3 class="h-row">Cuentas <button type="button" class="link" id="addAccount">+ Agregar</button></h3>
       <ul class="list" id="accountsList"></ul>
@@ -257,7 +320,7 @@
         <button type="button" class="btn ghost danger" id="logout">Cerrar sesión</button>
         <button type="submit" class="btn primary">Guardar</button>
       </div>
-      <p class="version">WithCash v1.5</p>
+      <p class="version">WithCash v2.0</p>
     </form>
   </dialog>
 
@@ -269,6 +332,11 @@
       <div id="shortcutsBody"></div>
       <div class="sheet-actions"><button type="button" class="btn primary" data-close>Listo</button></div>
     </form>
+  </dialog>
+
+  <!-- Ventana genérica: menú Más, búsqueda, detalles y formularios de módulos -->
+  <dialog id="dynSheet" class="sheet tall">
+    <div class="dyn" id="dynBody"></div>
   </dialog>
 
   <div class="toast" id="toast" role="status"></div>
@@ -289,6 +357,8 @@
   <div id="printArea" class="print-area" aria-hidden="true"></div>
 
   <script src="js/icons.js"></script>
+  <script src="js/finance.js"></script>
+  <script src="js/store.js"></script>
   <script src="js/config.js"></script>
   <script src="js/vendor/supabase.js"></script>
   <script src="js/app.js"></script>
