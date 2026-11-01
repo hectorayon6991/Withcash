@@ -2599,7 +2599,9 @@
   });
   $("#lockForgot").addEventListener("click", async () => {
     if (!confirm("Para quitar el PIN se cerrará tu sesión. Después entras con tu correo y contraseña.")) return;
-    ls.del(LOCK_KEY); await WCStore.del(cacheKey()); await WCStore.del(outboxKey());
+    // La cola de cambios sin enviar NO se borra: se envía cuando vuelvas a entrar con la misma cuenta
+    try { await flush(); } catch { /* sin conexión: se queda en la cola */ }
+    ls.del(LOCK_KEY); await WCStore.del(cacheKey());
     await sb.auth.signOut(); location.reload();
   });
   async function bioRegister() {
