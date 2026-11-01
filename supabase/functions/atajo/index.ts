@@ -169,9 +169,9 @@ Deno.serve(async (req) => {
   const fx = allFixed.filter((f) => !isBudget(f));          // pagos e ingresos fijos
   const budgets = allFixed.filter(isBudget);
 
-  // Ocurrencias ya marcadas desde el mes anterior ("YYYY-MM" y "YYYY-MM-DD" se ordenan bien como texto)
+  // Ocurrencias ya marcadas desde hace tres meses ("YYYY-MM" y "YYYY-MM-DD" se ordenan bien como texto)
   const { data: paidRows } = await db.from("movements").select("fixed_id,fixed_for")
-    .eq("user_id", uid).not("fixed_id", "is", null).gte("fixed_for", addMonths(ym, -1));
+    .eq("user_id", uid).not("fixed_id", "is", null).gte("fixed_for", addMonths(ym, -3));
   const paid = new Set((paidRows ?? []).map((r) => `${r.fixed_id}|${r.fixed_for}`));
   const isPaid = (f: Fixed, key: string) => paid.has(`${f.id}|${key}`);
   const localDate = (iso: string) => {
@@ -187,14 +187,22 @@ Deno.serve(async (req) => {
     const since = localDate(f.created_at);
     return o.due >= since || (freqOf(f) === "mensual" && o.key === since.slice(0, 7));
   };
+  // Sin pagar de hace tres meses a dos adelante (nunca antes del inicio del control). Igual que pendingOcc() en js/app.js.
   const pendingOcc = (f: Fixed) =>
-    [addMonths(ym, -1), ym, addMonths(ym, 1), addMonths(ym, 2)].flatMap((m) => occurrences(f, m))
+    [-3, -2, -1, 0, 1, 2].map((n) => addMonths(ym, n)).flatMap((m) => occurrences(f, m))
       .filter((o) => counts(f, o) && !isPaid(f, o.key));
   // La más antigua sin pagar de este mes en adelante
   const nextPending = (f: Fixed) => {
     const pend = pendingOcc(f);
     const o = pend.find((x) => x.due >= `${ym}-01`) ?? pend.at(-1) ?? occurrences(f, addMonths(ym, 3))[0];
     return { key: o.key, due: o.due, days: daysBetween(today, o.due) };
+  };
+  // Saldo que pasa de los meses anteriores (ingresos − gastos) desde el inicio del control. Igual que carryIn() en js/app.js.
+  const carryIn = async () => {
+    if (!startMonth || ym <= startMonth) return 0;
+    const { data } = await db.from("movements").select("type,amount").eq("user_id", uid)
+      .gte("date", `${startMonth}-01`).lt("date", `${ym}-01`);
+    return (data ?? []).reduce((s, m) => s + (m.type === "ingreso" ? Number(m.amount) : m.type === "gasto" ? -Number(m.amount) : 0), 0);
   };
   const budgetText = (f: Fixed, spent: number) => {
     const p = budgetPeriod(f, today), left = Number(f.amount) - spent;
@@ -268,11 +276,16 @@ Deno.serve(async (req) => {
       const pendOf = (list: Fixed[]) => list.flatMap((f) => occurrences(f, ym).filter((o) => counts(f, o) && !isPaid(f, o.key)).map(() => Number(f.amount)));
       const pend = pendOf(fx.filter((f) => !isIncome(f))), pendInc = pendOf(fx.filter(isIncome));
       const sum = (a: number[]) => a.reduce((s, v) => s + v, 0);
+      const carry = await carryIn();
+      const late = fx.filter((f) => !isIncome(f)).flatMap((f) => pendingOcc(f).filter((o) => o.due < `${ym}-01`).map(() => Number(f.amount)));
       const lines = [
         `📊 ${MESES[Number(ym.slice(5)) - 1]}`,
-        `Ingresos: ${money(inc)}`, `Gastos: ${money(exp)}`, `Disponible: ${money(inc - exp)}`,
+        `Ingresos: ${money(inc)}`, `Gastos: ${money(exp)}`,
+        ...(carry ? [`Viene de meses anteriores: ${money(carry)}`] : []),
+        `Disponible: ${money(inc - exp + carry)}`,
         pend.length ? `Pagos fijos pendientes: ${pend.length} (${money(sum(pend))})` : "✅ Pagos fijos del mes al corriente",
       ];
+      if (late.length) lines.push(`⏰ Atrasados de meses anteriores: ${late.length} (${money(sum(late))})`);
       if (pendInc.length) lines.push(`Ingresos fijos por recibir: ${money(sum(pendInc))}`);
       for (const f of budgets) lines.push("🎯 " + budgetText(f, await spentIn(f)));
       return text(lines.join("\n"));
@@ -341,5 +354,6 @@ Deno.serve(async (req) => {
   if (row.type === "gasto") {
     for (const f of budgets.filter((b) => b.category_id && b.category_id === row.category_id)) extra.push("🎯 " + budgetText(f, await spentIn(f)));
   }
-  return text(`✅ ${label}: ${parts}\nEste mes: gastos ${money(exp)} · disponible ${money(inc - exp)}` + (extra.length ? "\n" + extra.join("\n") : ""));
+  const carry = await carryIn();
+  return text(`✅ ${label}: ${parts}\nEste mes: gastos ${money(exp)} · disponible ${money(inc - exp + carry)}` + (extra.length ? "\n" + extra.join("\n") : ""));
 });

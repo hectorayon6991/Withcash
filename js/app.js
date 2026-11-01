@@ -185,6 +185,21 @@
     }
     return { inc, exp, fixedExp, varExp: exp - fixedExp, net: inc - exp };
   }
+  // Saldo que pasa de los meses anteriores (ingresos − gastos), contando solo desde el inicio del control
+  // (Ajustes → «Llevar el control desde»). Sin mes de inicio no se arrastra nada.
+  function carryIn(ym) {
+    const start = S.settings.start_month;
+    if (!start || ym <= start) return { amount: 0, months: 0 };
+    let amount = 0;
+    for (const m of S.movements) {
+      if (m.date < `${start}-01` || m.date >= `${ym}-01`) continue;
+      if (m.type === "ingreso") amount += Number(m.amount);
+      else if (m.type === "gasto") amount -= Number(m.amount);
+    }
+    let months = 0;
+    for (let x = start; x < ym; x = addMonths(x, 1)) months++;
+    return { amount, months };
+  }
   function accountBalance(a) {
     let b = Number(a.initial_balance) || 0;
     for (const m of S.movements) {
@@ -198,11 +213,10 @@
     }
     return b;
   }
-  // Próxima ocurrencia pendiente desde hoy
-  // Ocurrencias sin pagar (de hace un mes a dos meses adelante), en orden
+  // Ocurrencias sin pagar (de hace tres meses a dos meses adelante; nunca antes del inicio del control), en orden
   function pendingOcc(f) {
     const ym = ymOf(today());
-    return [addMonths(ym, -1), ym, addMonths(ym, 1), addMonths(ym, 2)].flatMap((m) => occurrences(f, m))
+    return [-3, -2, -1, 0, 1, 2].map((n) => addMonths(ym, n)).flatMap((m) => occurrences(f, m))
       .filter((o) => counts(f, o) && !paidFor(f, o.key));
   }
   // Próxima ocurrencia pendiente: la más antigua sin pagar de este mes en adelante (puede estar vencida)
@@ -434,9 +448,12 @@
     const budget = Number(S.settings.budget) || 0;
     const isCur = ym === ymOf(today());
     const accs = activeAccs();
+    const carry = carryIn(ym), avail = t.net + carry.amount;
+    const fromLbl = carry.months === 1 ? monthName(addMonths(ym, -1)) : "meses anteriores";
     let html = `<section class="card hero">
       <div class="label">Disponible en ${monthName(ym)}</div>
-      <div class="big num ${t.net < 0 ? "neg" : ""}">${money(t.net)}</div>
+      <div class="big num ${avail < 0 ? "neg" : ""}">${money(avail)}</div>
+      ${carry.months ? `<p class="hint" style="margin:2px 0 8px">${carry.amount >= 0 ? "Incluye" : "Se restan"} <b class="num ${carry.amount < 0 ? "neg" : "pos"}">${money(Math.abs(carry.amount))}</b> ${carry.amount >= 0 ? "que te sobraron" : "que quedaron en contra"} de ${fromLbl}</p>` : ""}
       <div class="stats">
         <div class="stat"><div class="k">Ingresos</div><div class="v num pos">${money(t.inc, { short: true })}</div></div>
         <div class="stat"><div class="k">Gastos</div><div class="v num">${money(t.exp, { short: true })}</div></div>
@@ -532,6 +549,16 @@
       </li>`;
     };
     let html = "";
+    // Pagos e ingresos de meses anteriores que quedaron sin marcar (solo desde el inicio del control)
+    if (ym === ymOf(today())) {
+      const late = list.filter((f) => !isBudget(f))
+        .flatMap((f) => pendingOcc(f).filter((o) => o.due < `${ym}-01`).map((o) => ({ f, month: o.key, due: o.due, days: daysBetween(today(), o.due) })))
+        .sort((a, b) => a.due.localeCompare(b.due));
+      if (late.length) {
+        const owe = late.filter((r) => !isIncome(r.f)).reduce((s, r) => s + Number(r.f.amount), 0);
+        html += `<section class="card"><h2>⏰ De meses anteriores${owe ? ` <span class="hint num neg">${money(owe)} por pagar</span>` : ""}</h2><ul class="list">${late.map(upcomingItem).join("")}</ul></section>`;
+      }
+    }
     const bills = list.filter(isBill);
     if (bills.length) {
       const { total, done } = sumOcc(bills);

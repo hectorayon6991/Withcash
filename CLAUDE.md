@@ -21,4 +21,7 @@ https://hectorayon6991.github.io/Withcash/
   quincenal (`day`, `day2`; 31 = último día) o semanal (`weekday`, 0 = domingo). La ocurrencia pagada/recibida se guarda en
   `movements.fixed_for`: `YYYY-MM` (mensual) o `YYYY-MM-DD` (quincenal/semanal). Esta lógica está duplicada en
   `js/app.js` y en la función `atajo`: si se cambia en una, cambiarla en la otra.
+- Inicio del control (`settings.start_month`, Ajustes → «Llevar el control desde»): antes de ese mes no hay fijos
+  vencidos ni saldo arrastrado. El «Disponible» de cada mes suma lo que sobró o faltó (ingresos − gastos) de los meses
+  anteriores desde ese inicio (`carryIn` en app.js y en `atajo`).
 - Las categorías y cuentas por defecto las crea la app la primera vez que entra el usuario (`seedDefaults`).
