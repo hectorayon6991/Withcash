@@ -89,7 +89,10 @@ type Fixed = {
   day: number | null; day2: number | null; weekday: number | null; remind_days: number;
   category_id: string | null; account_id: string | null; created_at: string;
   start_date?: string | null; end_date?: string | null; paused?: boolean | null;
+  installments?: number | null; installments_paid_before?: number | null;
 };
+// Deudas a cuotas: el número de cuotas decide cuándo terminan (la fecha final se ignora). Igual que WCFin.isInstDebt.
+const isInstDebt = (f: Fixed) => f.kind === "deuda" && Number(f.installments) > 0;
 type Override = { fixed_id: string; occ_key: string; action: string; new_date: string | null };
 const STEP: Record<string, number> = { bimestral: 2, trimestral: 3, semestral: 6, anual: 12 };
 const monthsBetween = (a: string, b: string) => { const [y1, m1] = a.split("-").map(Number), [y2, m2] = b.split("-").map(Number); return (y2 - y1) * 12 + (m2 - m1); };
@@ -123,7 +126,7 @@ function occurrences(f: Fixed, ym: string) {
     const ov = OVERRIDES[`${f.id}|${o.key}`];
     if (ov?.action === "skip") return [];
     return [{ key: o.key, due: ov?.action === "move" && ov.new_date ? ov.new_date : o.due }];
-  }).filter((o) => !f.end_date || o.due <= f.end_date);
+  }).filter((o) => !f.end_date || isInstDebt(f) || o.due <= f.end_date);
 }
 function budgetPeriod(f: Fixed, d: string) {
   const fr = freqOf(f), ym = ymOf(d);
@@ -210,12 +213,29 @@ Deno.serve(async (req) => {
   // Una ocurrencia cuenta si ya está pagada, o si no es anterior al mes de inicio del control (settings.start_month)
   // ni a la creación del fijo (en mensual sí cuenta el mes en que se creó). Igual que counts() en js/app.js.
   const startMonth: string | null = st?.start_month || null;
-  const counts = (f: Fixed, o: { key: string; due: string }) => {
+  const baseCounts = (f: Fixed, o: { key: string; due: string }) => {
     if (isPaid(f, o.key)) return true;
     if (f.paused) return false;
     if (startMonth && o.due < `${startMonth}-01`) return false;
     const since = localDate(f.created_at);
     return o.due >= since || (freqOf(f) === "mensual" && o.key === since.slice(0, 7));
+  };
+  // Deudas a cuotas: solo cuentan tantas fechas sin pagar como cuotas falten. Igual que counts() en js/app.js.
+  const instIds = fx.filter(isInstDebt).map((f) => f.id), paidCount = new Map<string, number>();
+  if (instIds.length) {
+    const { data: ip } = await db.from("movements").select("fixed_id,fixed_for").eq("user_id", uid).in("fixed_id", instIds);
+    for (const r of ip ?? []) { paidCount.set(r.fixed_id, (paidCount.get(r.fixed_id) ?? 0) + 1); paid.add(`${r.fixed_id}|${r.fixed_for}`); }
+  }
+  const counts = (f: Fixed, o: { key: string; due: string }) => {
+    if (!baseCounts(f, o)) return false;
+    if (!isInstDebt(f) || isPaid(f, o.key)) return true;
+    const left = Number(f.installments) - (f.installments_paid_before ?? 0) - (paidCount.get(f.id) ?? 0);
+    if (left <= 0) return false;
+    const since = localDate(f.created_at).slice(0, 7);
+    let before = 0;
+    for (let m = startMonth && startMonth > since ? startMonth : since, i = 0; m <= ymOf(o.due) && i < 240; m = addMonths(m, 1), i++)
+      for (const x of occurrences(f, m)) if (x.due < o.due && !isPaid(f, x.key) && baseCounts(f, x)) before++;
+    return before < left;
   };
   // Sin pagar de hace tres meses a dos adelante (nunca antes del inicio del control). Igual que pendingOcc() en js/app.js.
   const pendingOcc = (f: Fixed) =>
@@ -225,6 +245,7 @@ Deno.serve(async (req) => {
   const nextPending = (f: Fixed) => {
     const pend = pendingOcc(f);
     const o = pend.find((x) => x.due >= `${ym}-01`) ?? pend.at(-1) ?? occurrences(f, addMonths(ym, 3))[0];
+    if (!o) return null;
     return { key: o.key, due: o.due, days: daysBetween(today, o.due) };
   };
   // Saldo que pasa de los meses anteriores (ingresos − gastos) desde el inicio del control. Igual que carryIn() en js/app.js.
@@ -253,8 +274,8 @@ Deno.serve(async (req) => {
     else if (l.startsWith("ingreso")) lines = cat.filter((c) => c.kind === "ingreso").map((c) => c.name);
     else if (l.startsWith("categor") || l.startsWith("gasto")) lines = cat.filter((c) => c.kind === "gasto").map((c) => c.name);
     else if (l.startsWith("fijo")) {
-      lines = fx.map((f) => ({ f, n: nextPending(f) }))
-        .sort((a, b) => a.n.days - b.n.days)
+      lines = fx.map((f) => ({ f, n: nextPending(f) })).filter((x) => x.n)
+        .sort((a, b) => a.n!.days - b.n!.days)
         .map(({ f }) => f.name);
     } else return text("Lista desconocida. Usa: cuentas, categorias, ingresos o fijos.", 400);
     return text(lines.join("\n"));
@@ -347,6 +368,7 @@ Deno.serve(async (req) => {
     if (!f) return text(`No encontré el pago fijo "${p.fijo ?? ""}".`, 400);
     if (!(amount > 0)) amount = Number(f.amount);
     const n = nextPending(f);
+    if (!n) return text(`"${f.name}" ya no tiene pagos pendientes (deuda liquidada).`, 400);
     Object.assign(row, {
       type: isIncome(f) ? "ingreso" : "gasto", fixed_id: f.id, fixed_for: n.key,
       category_id: f.category_id, account_id: account?.id ?? f.account_id,

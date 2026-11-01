@@ -283,6 +283,27 @@ process.on("unhandledRejection", (e) => { check("la prueba terminó sin interrup
     await M.ctx.close();
   }
 
+  // ---------- Préstamos a cuotas con fecha final equivocada (año pasado) ----------
+  {
+    const d = fixtures();
+    d.fixed_payments.push(F("d1", "Compresor", "deuda", 398, { day: 13, installments: 12, installments_paid_before: 2, end_date: "2026-08-01", account_id: "a2" }),
+      F("d2", "Mercado Libre", "deuda", 394.69, { day: 17, installments: 3, installments_paid_before: 0, end_date: "2026-01-17", account_id: "a2" }),
+      F("d3", "Ya pagada", "deuda", 100, { day: 20, installments: 3, installments_paid_before: 3, account_id: "a2" }));
+    const L = await boot(browser, { data: d });
+    await L.p.click('.tabbar [data-tab="fijos"]'); await L.p.waitForTimeout(300);
+    const v = await txt(L.p, "#view");
+    const row = (n) => (v.match(new RegExp(n + ".{0,80}")) || [""])[0];
+    check("cuotas: el préstamo usa su día de pago aunque la fecha final esté en un año pasado", !/Compresor[^·]{0,30}Sin fechas/.test(v) && !/Mercado Libre[^·]{0,30}Sin fechas/.test(v) && /Compresor/.test(v) && /Mercado Libre/.test(v), row("Compresor") + " | " + row("Mercado Libre"));
+    // Mes siguiente: el préstamo de 3 cuotas sigue en diciembre; meses después ya no aparece
+    await L.p.click("#nextMonth"); await L.p.waitForTimeout(300);
+    const dic = await txt(L.p, "#view");
+    check("cuotas: la siguiente cuota aparece en diciembre", /Mercado Libre[^·]{0,40}(Día 17|17)/.test(dic) || (/Mercado Libre/.test(dic) && !/Mercado Libre[^·]{0,30}Sin fechas/.test(dic)), (dic.match(/Mercado Libre.{0,60}/) || [""])[0]);
+    check("cuotas: una deuda con todas las cuotas pagadas se ve liquidada", /Ya pagada[^·]{0,40}Liquidada/.test(v) || !/Ya pagada[^·]{0,30}Vence/.test(v), row("Ya pagada"));
+    check("cuotas sin errores", !L.errs.length, L.errs.join(" | "));
+    if (process.env.SHOTS) { await L.p.click("#prevMonth"); await L.p.waitForTimeout(300); await L.p.screenshot({ path: process.env.SHOTS + "/cuotas.png", fullPage: true }); }
+    await L.ctx.close();
+  }
+
   // ---------- 19-20. Dos dispositivos sobre los mismos datos ----------
   {
     const shared = fixtures();

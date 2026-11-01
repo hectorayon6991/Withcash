@@ -150,13 +150,25 @@
   const occurrences = (f, ym) => WCFin.occurrences(f, ym, overridesMap());
   // Una ocurrencia cuenta si ya está pagada, o si no es anterior al mes de inicio del control (Ajustes)
   // ni a la creación del fijo (en mensual sí cuenta el mes en que se creó).
-  function counts(f, o) {
+  function baseCounts(f, o) {
     if (paidFor(f, o.key)) return true;
     if (f.paused) return false;                                   // pausado: no genera pendientes
     const start = S.settings.start_month;
     if (start && o.due < `${start}-01`) return false;
     const since = f.created_at ? localDay(f.created_at) : "";
     return !since || o.due >= since || (freqOf(f) === "mensual" && o.key === since.slice(0, 7));
+  }
+  // Deudas a cuotas: solo cuentan tantas fechas sin pagar como cuotas falten (luego la deuda termina)
+  const instLeft = (f) => f.installments - (f.installments_paid_before || 0) - S.movements.filter((m) => m.fixed_id === f.id).length;
+  function counts(f, o) {
+    if (!baseCounts(f, o)) return false;
+    if (!WCFin.isInstDebt(f) || paidFor(f, o.key)) return true;
+    const left = instLeft(f); if (left <= 0) return false;
+    const since = f.created_at ? localDay(f.created_at).slice(0, 7) : ymOf(today());
+    let from = S.settings.start_month && S.settings.start_month > since ? S.settings.start_month : since, before = 0;
+    for (let m = from, i = 0; m <= ymOf(o.due) && i < 240; m = addMonths(m, 1), i++)
+      for (const x of occurrences(f, m)) if (x.due < o.due && !paidFor(f, x.key) && baseCounts(f, x)) before++;
+    return before < left;
   }
   const monthOcc = (f, ym) => occurrences(f, ym).filter((o) => counts(f, o)).map((o) => ({ ...o, mov: paidFor(f, o.key) }));
   const occLabel = (key) => key.length === 7 ? `correspondiente a ${monthName(key)}` : `del ${fmtShort(key)}`;
@@ -226,7 +238,7 @@
     const occ = monthOcc(f, ym);
     const multi = occ.length > 1 ? ` · ${occ.filter((o) => o.mov).length}/${occ.length}` : "";
     const done = isIncome(f) ? "Recibido" : "Pagado";
-    if (!occ.length) return { paid: false, none: true, label: "Sin fechas este mes", cls: "" };
+    if (!occ.length) return WCFin.isInstDebt(f) && instLeft(f) <= 0 ? { paid: false, none: true, settled: true, label: "Liquidada", cls: "good" } : { paid: false, none: true, label: "Sin fechas este mes", cls: "" };
     const pend = occ.find((o) => !o.mov);
     if (!pend) { const mov = occ[occ.length - 1].mov; return { paid: true, label: done + multi, cls: "good", mov, occ }; }
     const days = daysBetween(today(), pend.due), due = pend.due, key = pend.key;
@@ -1403,7 +1415,7 @@
     $("#fixedDates").hidden = bud && !range;
     $("#fixedStart").closest("label").hidden = !(multi || once || range);
     $("#fixedStartLbl").textContent = once ? "Fecha" : range ? "Desde" : "Primera fecha";
-    $("#fixedEndWrap").hidden = once;
+    $("#fixedEndWrap").hidden = once || (kind === "deuda" && parseInt($("#fixedInstallments").value, 10) > 0);   // a cuotas: termina sola
     $("#fixedEndLbl").textContent = range ? "Hasta" : "Termina (opcional)";
     // Cuándo
     const weekly = fr === "semanal", biweekly = fr === "quincenal";
@@ -1423,6 +1435,7 @@
     syncFixedForm();
   });
   $("#fixedFreq").addEventListener("change", () => syncFixedForm());
+  $("#fixedInstallments").addEventListener("input", () => syncFixedForm());
   $("#fixedTemplates").addEventListener("click", (e) => {
     const b = e.target.closest("[data-tpl]"); if (!b) return;
     const t = TEMPLATES[b.dataset.tpl];
@@ -1467,7 +1480,7 @@
     const row = {
       id: fixedEditing?.id || uuid(), user_id: S.user.id, name: $("#fixedName").value.trim(), kind, amount,
       frequency, day, day2, weekday, start_date: frequency === "semanal" || ["mensual", "quincenal"].includes(frequency) ? null : start_date,
-      end_date: end_date && start_date && end_date < start_date ? null : end_date, notes: $("#fixedNotes").value.trim() || null, paused: bud ? false : $("#fixedPaused").checked,
+      end_date: kind === "deuda" && parseInt($("#fixedInstallments").value, 10) > 0 ? null : end_date && start_date && end_date < start_date ? null : end_date, notes: $("#fixedNotes").value.trim() || null, paused: bud ? false : $("#fixedPaused").checked,
       category_id, account_id: bud ? null : $("#fixedAcc").value || null,
       remind_days: bud ? 0 : parseInt($("#fixedRemind").value, 10),
       installments: kind === "deuda" ? parseInt($("#fixedInstallments").value, 10) || null : null,

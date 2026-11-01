@@ -62,8 +62,10 @@
       if (ov?.action === "skip") return [];
       const due = ov?.action === "move" && ov.new_date ? ov.new_date : o.due;
       return [{ key: o.key, due, moved: ov?.action === "move" }];
-    }).filter((o) => !f.end_date || o.due <= f.end_date);
+    }).filter((o) => !f.end_date || isInstDebt(f) || o.due <= f.end_date);
   }
+  // Deudas a cuotas: el número de cuotas decide cuándo terminan (la fecha final se ignora)
+  const isInstDebt = (f) => f.kind === "deuda" && Number(f.installments) > 0;
 
   // ---------- Saldos ----------
   // Saldo de una cuenta = saldo inicial + ingresos − gastos ± transferencias ± movimientos de deudas.
@@ -199,7 +201,7 @@
   const api = { toC, fromC, sumC, mulC, pad, ymOf, addMonths, daysInMonth, dueDate, dow, addDays, daysBetween, monthsBetween,
     PER_MONTH, freqOf, perMonthC, baseOccurrences, occurrences, accountBalanceC, totalsC, byCategoryC,
     debtBalanceC, goalSavedC, goalPlan, budgetPeriod, budgetUse, budgetLevel, creditInfoC, availability,
-    cutFor, lastCutOn, payByFor, statementC, planInstallmentsC, planBilledCount, planUnbilledC, activePlans };
+    cutFor, lastCutOn, payByFor, statementC, isInstDebt, planInstallmentsC, planBilledCount, planUnbilledC, activePlans };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.WCFin = api;
 })(typeof self !== "undefined" ? self : this);
