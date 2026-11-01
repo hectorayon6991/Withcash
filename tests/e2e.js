@@ -27,14 +27,27 @@ async function boot(browser, { dbv = 5, device = "iPhone 13", offline = false, d
   p.on("pageerror", (e) => errs.push(e.message)); p.on("console", (m) => { if (m.type() === "error" && !/Failed to load resource/.test(m.text())) errs.push(m.text()); });
   await p.clock.setFixedTime(new Date("2026-11-16T12:00:00-06:00"));
   await p.addInitScript(([s]) => localStorage.setItem("sb-snccrdjtoxuwefncwhyv-auth-token", s), [JSON.stringify(session)]);
-  const server = { data, rpc: [], posts: [], fail: offline };
+  const server = { data, rpc: [], posts: [], fail: offline, rpcFail: [], hang: false };
   await p.route("**/*supabase.co/**", async (r) => {
     if (server.fail) return r.abort("internetdisconnected");
     const u = new URL(r.request().url()), m = r.request().method();
     if (u.pathname.startsWith("/auth/v1/user")) return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(user) });
+    if (u.pathname.startsWith("/auth/v1/token")) { server.refreshes = (server.refreshes || 0) + 1; return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(session) }); }
     if (u.pathname === "/rest/v1/rpc/wc_apply") {
       if (dbv < 5) return r.fulfill({ status: 404, contentType: "application/json", body: '{"message":"not found"}' });
+      if (server.rpcFail.length) { const f = server.rpcFail.shift(); return r.fulfill({ status: f.status, contentType: "application/json", body: JSON.stringify(f.body) }); }
       const { ops } = r.request().postDataJSON(); server.rpc.push(ops);
+      // Reglas de la base (como el servidor real): el lote completo se rechaza si una operación no cumple
+      const D = server.data, bad = (status, code, message) => r.fulfill({ status, contentType: "application/json", body: JSON.stringify({ code, message }) });
+      for (const o of ops) {
+        if (o.table !== "movements" || o.op === "delete" || !o.row) continue;
+        const m = o.row;
+        if (!(Number(m.amount) > 0)) return bad(400, "23514", 'new row for relation "movements" violates check constraint "movements_amount_check"');
+        if (m.note && [...m.note].length > 120) return bad(400, "23514", 'new row for relation "movements" violates check constraint "movements_note_check"');
+        if (m.category_id && !D.categories.some((c) => c.id === m.category_id)) return bad(409, "23503", 'insert or update on table "movements" violates foreign key constraint "movements_category_id_fkey"');
+        if (m.account_id && !D.accounts.some((a) => a.id === m.account_id) && !ops.some((x) => x.table === "accounts" && x.row?.id === m.account_id)) return bad(409, "23503", 'insert or update on table "movements" violates foreign key constraint "movements_account_id_fkey"');
+        if (o.op !== "insert_ignore" && m.fixed_id && D.movements.some((x) => x.id !== m.id && x.fixed_id === m.fixed_id && x.fixed_for === m.fixed_for)) return bad(409, "23505", 'duplicate key value violates unique constraint "movements_fixed_once"');
+      }
       for (const o of ops) {   // aplica en el «servidor» para comprobar persistencia
         const arr = server.data[o.table];
         if (o.table === "settings") { Object.assign(server.data.settings, o.row); continue; }
@@ -314,6 +327,89 @@ process.on("unhandledRejection", (e) => { check("la prueba terminó sin interrup
     check("cuotas sin errores", !L.errs.length, L.errs.join(" | "));
     if (process.env.SHOTS) { await L.p.click("#prevMonth"); await L.p.waitForTimeout(300); await L.p.screenshot({ path: process.env.SHOTS + "/cuotas.png", fullPage: true }); }
     await L.ctx.close();
+  }
+
+  // ---------- Guardado a prueba de fallas: ningún registro se pierde ----------
+  {
+    const synced = async (pg, ms = 20000) => { await pg.waitForTimeout(300); return pg.waitForFunction(() => document.querySelector("#syncDot")?.classList.contains("ok"), null, { timeout: ms }).then(() => true, () => false); };
+    const d = fixtures();
+    const R = await boot(browser, { data: d });
+    const P = R.p, srv = R.server;
+    // A. Servidor caído (500/503) dos veces → se reintenta solo y se guarda una sola vez
+    srv.rpcFail.push({ status: 500, body: { message: "upstream error" } }, { status: 503, body: { message: "Service Unavailable" } });
+    await addEntry(P, { type: "gasto", amount: 101, cat: "c1", acc: "a2", note: "Reintento 500" });
+    const okA = await synced(P);
+    check("fallas: servidor caído → se reintenta solo y se guarda una vez", okA && d.movements.filter((m) => m.note === "Reintento 500").length === 1, `sincronizado ${okA}`);
+    // B. Sesión vencida (401) → se renueva la sesión y se guarda
+    srv.rpcFail.push({ status: 401, body: { code: "PGRST301", message: "JWT expired" } });
+    await addEntry(P, { type: "gasto", amount: 102, cat: "c1", acc: "a2", note: "Sesion vencida" });
+    const okB = await synced(P);
+    check("fallas: sesión vencida → se renueva y se guarda", okB && d.movements.some((m) => m.note === "Sesion vencida") && srv.refreshes >= 1, `refrescos ${srv.refreshes}`);
+    // C. El mismo pago fijo ya se registró en otro dispositivo → no hay error ni duplicado
+    d.movements.push({ id: "otro-dispositivo-1", user_id: U, type: "gasto", amount: 900, date: "2026-11-15", note: "Internet", category_id: "c5", account_id: "a2", fixed_id: "f1", fixed_for: "2026-11", source: "app", created_at: "2026-11-15T10:00:00Z" });
+    await P.click('.tabbar [data-tab="fijos"]'); await P.waitForTimeout(300);
+    await P.click('[data-pay-actions="f1"]'); await P.waitForTimeout(250);
+    await P.click('#dynBody [data-a="pay"]'); await P.waitForTimeout(250); await P.click("#entryForm button[type=submit]");
+    const okC = await synced(P);
+    check("fallas: pago fijo ya registrado en otro dispositivo → sin error ni duplicado", okC && d.movements.filter((m) => m.fixed_id === "f1" && m.fixed_for === "2026-11").length === 1, `sincronizado ${okC}`);
+    // D. Categoría borrada en otro dispositivo → el gasto se guarda igual (sin categoría)
+    d.categories = d.categories.filter((c) => c.id !== "c1");
+    await addEntry(P, { type: "gasto", amount: 103, cat: "c1", acc: "a2", note: "Categoria borrada" });
+    const okD = await synced(P), mD = d.movements.find((m) => m.note === "Categoria borrada");
+    check("fallas: categoría borrada en otro dispositivo → se guarda sin categoría", okD && !!mD && mD.category_id === null, JSON.stringify(mD && mD.category_id));
+    // E. Descripción más larga de lo que acepta la base → se recorta y se guarda
+    await P.click("#fab"); await P.waitForTimeout(200);
+    await P.fill("#entryAmount", "104"); await P.click('#payChips [data-pay-acc="a2"]');
+    await P.evaluate(() => { const i = document.querySelector("#entryNote"); i.removeAttribute("maxlength"); i.value = "Larga " + "x".repeat(200); });
+    await P.click("#entryForm button[type=submit]");
+    const okE = await synced(P), mE = d.movements.find((m) => (m.note || "").startsWith("Larga "));
+    check("fallas: texto demasiado largo → se recorta y se guarda", okE && !!mE && [...mE.note].length === 120, String(mE && mE.note.length));
+    // F. Rechazo que no se puede reparar → queda guardado como «error», sobrevive a recargar y se envía al reintentar
+    srv.rpcFail.push({ status: 400, body: { code: "P0001", message: "falla simulada" } });
+    await addEntry(P, { type: "gasto", amount: 105, cat: "c2", acc: "a2", note: "Rechazado" });
+    await P.waitForTimeout(800);
+    const errDot = await P.evaluate(() => document.querySelector("#syncDot").className);
+    await P.reload(); await P.waitForSelector("#appShell:not([hidden])"); await P.waitForTimeout(900);
+    const bar = await P.evaluate(() => document.querySelector("#offlineBar").innerText);
+    const okF = await synced(P), mF = d.movements.some((m) => m.note === "Rechazado");
+    check("fallas: rechazo no reparable → no se pierde y se envía al reintentar", /err/.test(errDot) && okF && mF, `${errDot} · ${bar}`);
+    // G. Sin internet y la app se cierra de golpe → al abrir sigue ahí y se envía al volver la red
+    srv.fail = true;
+    await addEntry(P, { type: "gasto", amount: 106, cat: "c2", acc: "a2", note: "Sin red y cerrada" });
+    await P.reload().catch(() => {}); await P.waitForSelector("#appShell:not([hidden])"); await P.waitForTimeout(700);
+    await P.click('.tabbar [data-tab="movimientos"]'); await P.waitForTimeout(300);
+    const visible = /Sin red y cerrada/.test(await txt(P, "#view"));
+    srv.fail = false; await P.evaluate(() => window.dispatchEvent(new Event("online")));
+    const okG = await synced(P), mG = d.movements.filter((m) => m.note === "Sin red y cerrada").length;
+    check("fallas: sin internet + app cerrada → sigue visible y se envía al reconectar", visible && okG && mG === 1, `visible ${visible}, en servidor ${mG}`);
+    // H. Cerrar sesión con cambios sin enviar → se envían al volver a entrar
+    srv.fail = true;
+    await addEntry(P, { type: "gasto", amount: 107, cat: "c2", acc: "a2", note: "Antes de salir" });
+    await P.click('.tabbar [data-tab="config"]'); await P.waitForTimeout(300);
+    P.on("dialog", (dl) => dl.accept());
+    await P.click("#logout"); await P.waitForTimeout(1200);
+    srv.fail = false;
+    // (la prueba vuelve a poner la sesión al recargar: equivale a entrar de nuevo con la misma cuenta)
+    await P.waitForSelector("#appShell:not([hidden])", { timeout: 8000 }).catch(() => {});
+    const okH = await synced(P), mH = d.movements.filter((m) => m.note === "Antes de salir").length;
+    check("fallas: cerrar sesión con cambios sin enviar → se envían al volver a entrar", okH && mH === 1, `en servidor ${mH}`);
+    check("fallas sin errores de la app", !R.errs.filter((x) => !/falla simulada|upstream|Service Unavailable|JWT|duplicate key|foreign key|Failed to fetch/.test(x)).length, R.errs.join(" | "));
+    await R.ctx.close();
+  }
+  // ---------- Restaurar respaldo con un registro inválido: los demás se guardan ----------
+  {
+    const d = fixtures();
+    const R = await boot(browser, { data: d });
+    const backup = { movements: [
+      { id: "aaaaaaaa-0000-4000-8000-000000000001", user_id: U, type: "gasto", amount: 50, date: "2026-11-10", note: "Bueno 1", category_id: "c8", account_id: "a2", source: "app", created_at: "2026-11-10T10:00:00Z" },
+      { id: "aaaaaaaa-0000-4000-8000-000000000002", user_id: U, type: "gasto", amount: 0, date: "2026-11-10", note: "Malo", category_id: "c8", account_id: "a2", source: "app", created_at: "2026-11-10T10:00:00Z" },
+      { id: "aaaaaaaa-0000-4000-8000-000000000003", user_id: U, type: "gasto", amount: 70, date: "2026-11-11", note: "Bueno 2", category_id: "c8", account_id: "a2", source: "app", created_at: "2026-11-11T10:00:00Z" } ] };
+    R.p.on("dialog", (dl) => dl.accept());
+    await R.p.setInputFiles("#importJson", { name: "respaldo.json", mimeType: "application/json", buffer: Buffer.from(JSON.stringify(backup)) });
+    await R.p.waitForTimeout(2500);
+    const notes = d.movements.map((m) => m.note);
+    check("restaurar: un registro inválido no impide guardar los demás", notes.includes("Bueno 1") && notes.includes("Bueno 2") && !notes.includes("Malo"), notes.join(","));
+    await R.ctx.close();
   }
 
   // ---------- 19-20. Dos dispositivos sobre los mismos datos ----------

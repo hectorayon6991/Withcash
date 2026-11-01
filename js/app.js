@@ -7,8 +7,15 @@
   // Se lee antes de crear el cliente: Supabase limpia el #hash del enlace del correo al procesarlo.
   const AUTH_HASH = new URLSearchParams(location.hash.slice(1));
   let recovering = AUTH_HASH.get("type") === "recovery";
+  // Ninguna petición se queda colgada: si la red no responde se corta y el cambio sigue en la cola para reintentar
+  function fetchWithTimeout(url, opts = {}) {
+    const c = new AbortController(), ms = /\/storage\//.test(String(url)) ? 120000 : 30000;
+    const t = setTimeout(() => c.abort(), ms);
+    if (opts.signal) { if (opts.signal.aborted) c.abort(); else opts.signal.addEventListener("abort", () => c.abort()); }
+    return fetch(url, { ...opts, signal: c.signal }).finally(() => clearTimeout(t));
+  }
   const sb = CFG.supabaseUrl && CFG.supabaseKey && window.supabase
-    ? window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseKey, { auth: { persistSession: true, autoRefreshToken: true } })
+    ? window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseKey, { auth: { persistSession: true, autoRefreshToken: true }, global: { fetch: fetchWithTimeout } })
     : null;
 
   const $ = (s, el = document) => el.querySelector(s);
@@ -67,7 +74,7 @@
     user: null,
     settings: { currency: "MXN", budget: null, savings_goal: null, timezone: "America/Mexico_City" },
     accounts: [], categories: [], fixed: [], movements: [],
-    overrides: [], goals: [], contribs: [], debts: [], debtPays: [], plans: [], dbv: 4,
+    overrides: [], goals: [], contribs: [], debts: [], debtPays: [], plans: [], dbv: 0,   // 0 = aún no se sabe qué versión tiene la base (no se envía nada hasta saberlo)
     tab: "inicio", ym: null, movFilter: "todos", period: "mes",
   };
 
@@ -121,7 +128,8 @@
     const lc = s.lastIndexOf(","), ld = s.lastIndexOf(".");
     if (lc > -1 && ld > -1) s = lc > ld ? s.replace(/\./g, "").replace(",", ".") : s.replace(/,/g, "");
     else if (lc > -1) s = /,\d{1,2}$/.test(s) ? s.replace(/,/g, ".") : s.replace(/,/g, "");
-    return Math.round(parseFloat(s) * 100) / 100;
+    const n = Math.round(parseFloat(s) * 100) / 100;
+    return Math.abs(n) >= 1e10 ? NaN : n;                // la base acepta hasta 9,999,999,999.99
   };
 
   // ---------- Lookups ----------
@@ -297,15 +305,27 @@
     await WCStore.adopt(cacheKey()); await WCStore.adopt(outboxKey());
     const c = await WCStore.get(cacheKey(), null);
     let q = await WCStore.get(outboxKey(), []);
+    const bk = ls.get(outboxBkKey(), null);                       // copia síncrona: siempre es la más reciente
+    if (Array.isArray(bk)) q = bk;
     // Formato anterior (lista de operaciones sueltas) → entradas
     if (q.length && !q[0].ops) q = q.map((op) => ({ id: uuid(), ops: [op], status: "pending", at: Date.now() }));
     OUTBOX = q;
     if (!c) return false;
     Object.assign(S, { settings: { ...S.settings, ...c.settings }, accounts: c.accounts || [], categories: c.categories || [], fixed: c.fixed || [], movements: c.movements || [],
-      overrides: c.overrides || [], goals: c.goals || [], contribs: c.contribs || [], debts: c.debts || [], debtPays: c.debtPays || [], plans: c.plans || [], dbv: c.dbv || 4 });
+      overrides: c.overrides || [], goals: c.goals || [], contribs: c.contribs || [], debts: c.debts || [], debtPays: c.debtPays || [], plans: c.plans || [], dbv: c.dbv || 0 });
+    // Lo que está en la cola se aplica encima de la caché (por si la app se cerró antes de guardarla)
+    for (const e of OUTBOX) e.ops.forEach(applyLocal);
     return true;
   }
-  const persistOutbox = () => WCStore.set(outboxKey(), OUTBOX);
+  // La cola se guarda dos veces: al instante en localStorage (síncrono, sobrevive aunque la app se cierre de golpe)
+  // y en IndexedDB. Si la copia síncrona no cabe se borra, para que nunca quede una copia vieja.
+  const outboxBkKey = () => `wc_q_bk_${S.user?.id}`;
+  function persistOutbox() {
+    if (!S.user) return;
+    try { if (OUTBOX.length) localStorage.setItem(outboxBkKey(), JSON.stringify(OUTBOX)); else localStorage.removeItem(outboxBkKey()); }
+    catch { try { localStorage.removeItem(outboxBkKey()); } catch { /* */ } }
+    WCStore.set(outboxKey(), OUTBOX).then((ok) => { if (!ok && !ls.get(outboxBkKey(), null) && OUTBOX.length) toast("Tu teléfono no tiene espacio: libera espacio para no perder cambios sin enviar"); });
+  }
   function applyLocal(op) {
     if (op.table === "settings") { S.settings = { ...S.settings, ...op.row }; return; }
     const key = TABLE_STATE[op.table]; if (!key) return;
@@ -318,19 +338,68 @@
     }
     if (key === "movements") arr.sort((a, b) => (b.date + (b.time || "") + (b.created_at || "")).localeCompare(a.date + (a.time || "") + (a.created_at || "")));
   }
-  // Acepta una operación o una lista (que se guardará de forma atómica)
-  function mutate(opOrOps) {
-    const ops = [].concat(opOrOps).flatMap((op) => (Array.isArray(op.row) ? op.row.map((r) => ({ ...op, row: r })) : [op]));
+  // ---------- Reglas de la base: cada fila se ajusta ANTES de guardarse para que el servidor nunca la rechace ----------
+  const DB_RULES = {
+    text: { accounts: { name: 40 }, categories: { name: 40 }, fixed_payments: { name: 40 }, movements: { note: 120, notes: 1000 },
+      savings_goals: { name: 60, description: 500 }, savings_contributions: { note: 200 }, debts: { name: 60, counterparty: 60, notes: 1000 },
+      debt_payments: { note: 200 }, card_plans: { name: 60 } },
+    num: { accounts: { initial_balance: [12, 2], credit_limit: [12, 2], apr: [6, 2] }, fixed_payments: { amount: [12, 2] },
+      movements: { amount: [12, 2], orig_amount: [12, 2] }, settings: { budget: [12, 2], savings_goal: [12, 2], usd_rate: [10, 4] },
+      savings_goals: { target: [14, 2] }, savings_contributions: { amount: [14, 2] }, debts: { principal: [14, 2], interest_rate: [6, 2] },
+      debt_payments: { amount: [14, 2], interest: [14, 2] }, card_plans: { total: [14, 2] } },
+    int: { accounts: { cut_day: [1, 31], due_day: [1, 31] }, fixed_payments: { day: [1, 31], day2: [1, 31], weekday: [0, 6], remind_days: [0, 15], installments: [1, 9999], installments_paid_before: [0, 9999] },
+      card_plans: { installments: [1, 72] }, settings: { auto_lock_minutes: [0, 1440] } },
+    // Columnas obligatorias con valor por defecto: si vienen vacías se omiten (la base pone su valor o conserva el actual)
+    req: { accounts: ["icon", "kind", "allow_negative", "currency", "archived", "sort", "initial_balance"], categories: ["icon", "kind", "archived", "sort"],
+      fixed_payments: ["frequency", "kind", "remind_days", "active", "auto", "paused", "installments_paid_before", "amount"], movements: ["source", "tags", "date"],
+      settings: ["currency", "timezone", "theme", "date_format", "time_format", "auto_lock_minutes", "notify", "currencies"],
+      savings_goals: ["icon", "status"], savings_contributions: ["date"], debts: ["kind", "status", "start_date"], debt_payments: ["interest", "date"], card_plans: ["status"] },
+  };
+  const clip = (v, n) => { const a = Array.from(String(v)); return a.length > n ? a.slice(0, n).join("") : String(v); };
+  function cleanRow(table, row) {
+    const r = { ...row };
+    for (const [k, n] of Object.entries(DB_RULES.text[table] || {})) if (r[k] != null) { r[k] = clip(String(r[k]).trim(), n); if (!r[k] && k !== "name") r[k] = null; }
+    for (const [k, [p, sc]] of Object.entries(DB_RULES.num[table] || {})) {
+      if (!(k in r) || r[k] === null || r[k] === "") { if (r[k] === "") r[k] = null; continue; }
+      const v = Number(r[k]);
+      if (!Number.isFinite(v)) { r[k] = null; continue; }
+      const f = 10 ** sc, q = Math.round(v * f) / f;
+      if (Math.abs(q) >= 10 ** (p - sc)) throw new Error("Monto demasiado grande");
+      r[k] = q;
+    }
+    for (const [k, [lo, hi]] of Object.entries(DB_RULES.int[table] || {})) {
+      if (!(k in r) || r[k] === null || r[k] === "") { if (r[k] === "") r[k] = null; continue; }
+      const v = Math.round(Number(r[k]));
+      r[k] = Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : null;
+    }
+    if (table === "movements" && "tags" in r) r.tags = Array.isArray(r.tags) ? r.tags.map(String).filter(Boolean).slice(0, 20) : [];
+    for (const k of DB_RULES.req[table] || []) if (k in r && (r[k] === null || r[k] === undefined || Number.isNaN(r[k]))) delete r[k];
+    return r;
+  }
+  // Acepta una operación o una lista (que se guardará de forma atómica). Devuelve false si no se pudo guardar.
+  function mutate(opOrOps, opts = {}) {
+    let ops = [].concat(opOrOps).flatMap((op) => (Array.isArray(op.row) ? op.row.map((r) => ({ ...op, row: r })) : [op]));
     const now = new Date().toISOString();
-    for (const op of ops) if (op.row && op.table !== "settings") op.row = { ...op.row, updated_at: now };
+    const fix = (op) => (op.row ? { ...op, row: cleanRow(op.table, op.table === "settings" ? op.row : { ...op.row, updated_at: now }) } : op);
+    if (opts.split) {                                              // registros independientes: se omiten solo los inválidos
+      const before = ops.length;
+      ops = ops.flatMap((op) => { try { return [fix(op)]; } catch { return []; } });
+      if (ops.length < before) toast(`${before - ops.length} registro(s) del respaldo tenían montos inválidos y se omitieron`);
+      if (!ops.length) return false;
+    } else {
+      try { ops = ops.map(fix); }
+      catch (err) { toast(err.message === "Monto demasiado grande" ? "El monto es demasiado grande" : "No se pudo guardar: " + err.message); return false; }
+    }
     ops.forEach(applyLocal);
     saveCache();
-    OUTBOX.push({ id: uuid(), ops, status: "pending", at: Date.now() });
+    OUTBOX.push({ id: uuid(), ops, status: "pending", at: Date.now(), ...(opts.split ? { split: true } : {}) });
     persistOutbox();
+    updateOffline();
     flush();
     render();
+    return true;
   }
-  const isNetErr = (e) => !navigator.onLine || /fetch|network|load failed|timeout|Failed to fetch/i.test(e?.message || "");
+  const isNetErr = (e) => !navigator.onLine || e?.name === "AbortError" || /fetch|network|load failed|timeout|abort|offline|connection/i.test(e?.message || "");
   const stripRow = (table, row) => { if (dbReady() || !row) return row; const r = { ...row }; for (const k of NEW_COLS[table] || []) delete r[k]; return r; };
   // Envío con la base anterior (sin wc_apply): una operación a la vez
   async function sendLegacy(ops) {
@@ -342,34 +411,133 @@
     }
     return {};
   }
-  let flushing = false;
+  // ---------- Envío de la cola ----------
+  // Cada falla se clasifica:
+  //   red / tiempo agotado / servidor caído (5xx, 429) → se queda en la cola y se reintenta solo
+  //   sesión vencida → se renueva la sesión y se reintenta; si no se puede, espera a que vuelvas a entrar
+  //   dato rechazado → se intenta reparar automáticamente (pago ya registrado, cuenta/categoría borrada en
+  //                     otro dispositivo, texto o número fuera de rango) y se reenvía; solo si no se puede reparar
+  //                     queda como «error» (nunca se borra sola)
+  let flushing = false, flushAgain = false, authNeeded = false;
+  const CONFIRMED = [];                                          // lotes confirmados recientemente (ver loadRemote)
+  // Llaves foráneas: columna que se puede vaciar si el registro relacionado ya no existe; null = el lote ya no tiene sentido
+  const FK_FIX = {
+    movements_category_id_fkey: ["movements", "category_id"], movements_account_id_fkey: ["movements", "account_id"],
+    movements_to_account_id_fkey: ["movements", "to_account_id"], movements_fixed_id_fkey: ["movements", "fixed_id"],
+    fixed_payments_category_id_fkey: ["fixed_payments", "category_id"], fixed_payments_account_id_fkey: ["fixed_payments", "account_id"],
+    savings_goals_account_id_fkey: ["savings_goals", "account_id"], debts_account_id_fkey: ["debts", "account_id"],
+    debt_payments_account_id_fkey: ["debt_payments", "account_id"], card_plans_movement_id_fkey: ["card_plans", "movement_id"],
+    card_plans_account_id_fkey: ["card_plans", null], savings_contributions_goal_id_fkey: ["savings_contributions", null],
+    debt_payments_debt_id_fkey: ["debt_payments", null], fixed_overrides_fixed_id_fkey: ["fixed_overrides", null],
+  };
+  function classify(res) {
+    const e = res.error, st = res.status, code = e?.code || "";
+    if (isNetErr(e) || !st) return "net";
+    if (st === 401 || code === "PGRST301" || code === "PGRST303" || /jwt|not authenticated/i.test(e?.message || "")) return "auth";
+    if (st >= 500 || st === 408 || st === 429 || ["57014", "40001", "40P01", "53300", "55P03"].includes(code)) return "net";
+    return "data";
+  }
+  // Ids que todavía están por enviarse en otros lotes (un registro hijo espera a su registro padre)
+  const pendingIds = (except) => new Set(OUTBOX.filter((x) => x !== except && x.status !== "error").flatMap((x) => x.ops.map((o) => o.row?.id || o.id)).filter(Boolean));
+  // Intenta reparar un lote rechazado. Devuelve "retry" (reenviar ya), "wait" (esperar a otro lote) o null (no se pudo).
+  function repair(e, err) {
+    const msg = err?.message || "", code = err?.code || "";
+    e.repairs = (e.repairs || 0) + 1;
+    if (e.repairs > 6) return null;
+    // El mismo pago fijo ya se registró (otro dispositivo, Atajo o automático): se conserva el que ya existe
+    if (code === "23505" && /movements_fixed_once|fixed_id/.test(msg)) {
+      let changed = false;
+      e.ops = e.ops.map((o) => { if (o.table === "movements" && o.row?.fixed_id && (o.op || "upsert") === "upsert") { changed = true; return { ...o, op: "insert_ignore" }; } return o; });
+      if (changed) { e.note = "Ese pago ya estaba registrado; se conservó el que ya existía"; lastRefresh = 0; return "retry"; }
+    }
+    if (code === "23505" && /fixed_overrides/.test(msg)) { e.ops = e.ops.filter((o) => o.table !== "fixed_overrides"); return e.ops.length ? "retry" : "drop"; }
+    // Registro relacionado que no existe en el servidor
+    if (code === "23503") {
+      const fk = (msg.match(/constraint "([^"]+)"/) || [])[1], fix = FK_FIX[fk];
+      if (fix) {
+        const [table, col] = fix, waiting = pendingIds(e);
+        const refCol = col || { card_plans: "account_id", savings_contributions: "goal_id", debt_payments: "debt_id", fixed_overrides: "fixed_id" }[table];
+        // Si el registro relacionado aún va en otro lote, se espera a que ese llegue primero
+        if (e.ops.some((o) => o.table === table && o.row && waiting.has(o.row[refCol]))) return "wait";
+        if (col) { e.ops = e.ops.map((o) => (o.table === table && o.row && o.row[col] ? { ...o, row: { ...o.row, [col]: null } } : o)); e.note = "Se guardó sin un dato que ya no existe (se borró en otro dispositivo)"; return "retry"; }
+        e.ops = e.ops.filter((o) => o.table !== table);
+        return e.ops.length ? "retry" : "drop";
+      }
+    }
+    // Texto o número fuera de rango, dato obligatorio vacío, formato inválido: se vuelve a ajustar a las reglas
+    if (/^(22|23502|23514)/.test(code)) {
+      try { e.ops = e.ops.map((o) => (o.row ? { ...o, row: cleanRow(o.table, o.row) } : o)); } catch { return null; }
+      return e.repairs <= 2 ? "retry" : null;
+    }
+    return null;
+  }
+  async function sendEntry(e) {
+    try {
+      return dbReady()
+        ? await sb.rpc("wc_apply", { ops: e.ops.map((o) => ({ table: o.table, op: o.op || "upsert", id: o.id, row: o.row })) })
+        : await sendLegacy(e.ops);
+    } catch (err) { return { error: err }; }
+  }
   async function flush(retryErrors = false) {
-    if (flushing || !sb || !S.user) return;
+    if (!sb || !S.user || !S.dbv) return;                        // sin saber la versión de la base no se envía (evita la ruta antigua)
+    if (flushing) { flushAgain = true; return; }
     flushing = true;
+    let notes = [];
     try {
       for (const e of OUTBOX.slice()) {
+        if (!OUTBOX.includes(e)) continue;
         if (e.status === "error" && !retryErrors) continue;
         // Operaciones de módulos nuevos esperan a que la base esté actualizada (no se pierden)
         if (e.ops.some((o) => !tableReady(o.table))) { e.status = "waiting"; continue; }
-        let res;
-        try {
-          res = dbReady()
-            ? await sb.rpc("wc_apply", { ops: e.ops.map((o) => ({ table: o.table, op: o.op || "upsert", id: o.id, row: o.row })) })
-            : await sendLegacy(e.ops);
-        } catch (err) { res = { error: err }; }
-        if (res.error) {
-          if (isNetErr(res.error)) break;                       // sin internet: se reintenta después
+        let res = await sendEntry(e), stop = false;
+        for (let guard = 0; res.error && guard < 8; guard++) {
+          const kind = classify(res);
+          if (kind === "net") { stop = true; break; }                 // sin internet o servidor ocupado: se reintenta después
+          if (kind === "auth") {
+            const { error: rErr } = await sb.auth.refreshSession().catch((x) => ({ error: x }));
+            if (rErr) { if (!isNetErr(rErr)) authNeeded = true; stop = true; break; }
+            res = await sendEntry(e); continue;
+          }
+          const fix = repair(e, res.error);
+          if (fix === "retry") { persistOutbox(); res = await sendEntry(e); continue; }
+          if (fix === "drop") { res = {}; break; }
+          if (fix === "wait") { e.status = "pending"; res = { waiting: true }; break; }
+          // Lote de registros independientes (restaurar respaldo): se separa para que un registro malo no detenga a los demás
+          if (e.split && e.ops.length > 1) {
+            const i = OUTBOX.indexOf(e), parts = e.ops.map((o) => ({ id: uuid(), ops: [o], status: "pending", at: e.at }));
+            OUTBOX.splice(i, 1, ...parts); flushAgain = true; res = { waiting: true }; break;
+          }
           e.status = "error"; e.error = res.error.message || String(res.error); e.tries = (e.tries || 0) + 1;
           console.error(res.error);
-          continue;
+          break;
         }
-        OUTBOX = OUTBOX.filter((x) => x.id !== e.id);           // confirmado por el servidor → ya se puede quitar
+        if (stop) break;
+        if (res.waiting || (res.error && e.status === "error")) continue;
+        if (!res.error) {
+          authNeeded = false;
+          if (e.note) notes.push(e.note);
+          OUTBOX = OUTBOX.filter((x) => x.id !== e.id);               // confirmado por el servidor → ya se puede quitar
+          CONFIRMED.push({ at: Date.now(), ops: e.ops });
+          while (CONFIRMED.length && Date.now() - CONFIRMED[0].at > 300000) CONFIRMED.shift();
+        }
       }
     } finally {
       flushing = false;
       persistOutbox();
       updateOffline();
+      if (notes.length) toast(notes[0]);
+      if (flushAgain) { flushAgain = false; setTimeout(() => flush(), 50); }
+      else if (OUTBOX.some((x) => x.status === "pending") && navigator.onLine) scheduleRetry();
+      else retryDelay = 3000;
+      retryTickets();
     }
+  }
+  // Reintentos automáticos con espera creciente (3 s → 2 min) mientras haya cambios pendientes
+  let retryTimer = 0, retryDelay = 3000;
+  function scheduleRetry() {
+    clearTimeout(retryTimer);
+    retryTimer = setTimeout(() => flush(), retryDelay);
+    retryDelay = Math.min(120000, retryDelay * 2);
   }
   function syncState() {
     const err = OUTBOX.filter((e) => e.status === "error").length, wait = OUTBOX.filter((e) => e.status === "waiting").length;
@@ -381,14 +549,19 @@
     const bar = $("#offlineBar");
     bar.hidden = navigator.onLine && !st.total;
     bar.classList.toggle("err", !!st.err);
-    bar.textContent = !navigator.onLine ? `Sin conexión · ${st.total ? `${st.total} cambio(s) guardados en este dispositivo` : "los cambios se guardarán al reconectar"}`
+    bar.textContent = authNeeded && st.total ? `Tu sesión venció · ${st.total} cambio(s) guardados aquí se enviarán al volver a entrar`
+      : !navigator.onLine ? `Sin conexión · ${st.total ? `${st.total} cambio(s) guardados en este dispositivo` : "los cambios se guardarán al reconectar"}`
       : st.err ? `${st.err} cambio(s) con error · toca para revisar`
       : st.pend ? `Sincronizando ${st.pend} cambio(s)…`
       : st.wait ? `${st.wait} cambio(s) esperan la actualización de la base de datos` : "";
     const dot = $("#syncDot");
     if (dot) { dot.className = "sync-dot " + (!navigator.onLine ? "off" : st.err ? "err" : st.total ? "pend" : "ok"); dot.title = st.err ? "Error de sincronización" : st.total ? "Pendiente" : "Sincronizado"; }
   }
-  window.addEventListener("online", () => flush(true));
+  window.addEventListener("online", () => { retryDelay = 3000; refreshDelay = 4000; if (S.dbv) flush(true); else refresh(true); });
+  // Red de seguridad: cada 30 s, si quedó algo pendiente, se intenta enviar
+  setInterval(() => { if (S.user && navigator.onLine && OUTBOX.some((x) => x.status === "pending")) flush(); }, 30000);
+  // Al salir de la app se intenta enviar lo pendiente (la cola ya está guardada de todos modos)
+  document.addEventListener("visibilitychange", () => { if (document.hidden && S.user && OUTBOX.length) { persistOutbox(); flush(); } });
   window.addEventListener("offline", updateOffline);
 
   async function fetchAll(table, order) {
@@ -403,10 +576,15 @@
   }
   async function loadRemote() {
     if (OUTBOX.length) await flush(true);
+    const t0 = Date.now() - 2000;
     // ¿La base ya tiene los módulos nuevos?
+    // Solo «la tabla no existe» cuenta como base anterior; una falla de red NO cambia la versión (se reintenta luego)
+    const missing = (r) => r.error && (r.status === 404 || ["PGRST205", "42P01", "PGRST202"].includes(r.error.code));
     const probe = await sb.from("savings_goals").select("id").limit(1);
-    S.dbv = probe.error ? 4 : 5;
-    if (S.dbv >= 5) { const p6 = await sb.from("card_plans").select("id").limit(1); if (!p6.error) S.dbv = 6; }
+    if (probe.error && !missing(probe)) throw probe.error;
+    let v = probe.error ? 4 : 5;
+    if (v >= 5) { const p6 = await sb.from("card_plans").select("id").limit(1); if (p6.error && !missing(p6)) throw p6.error; if (!p6.error) v = 6; }
+    S.dbv = v;
     const extra = (dbReady() ? NEW_TABLES : []).concat(plansReady() ? ["card_plans"] : []);
     const [st, accounts, categories, fixed, movements, ...rest] = await Promise.all([
       sb.from("settings").select("*").maybeSingle(),
@@ -419,13 +597,16 @@
     Object.assign(S, { accounts, categories, fixed, movements });
     extra.forEach((t, i) => (S[TABLE_STATE[t]] = rest[i]));
     applyLocal({ table: "movements", op: "upsert", row: [] }); // ordena
-    // Cambios aún no confirmados: se vuelven a aplicar encima de lo descargado
+    // Cambios confirmados mientras se descargaba (pueden no venir en la descarga) y cambios aún no confirmados:
+    // se vuelven a aplicar encima de lo descargado para que nunca «desaparezca» un registro de la pantalla
+    for (const c of CONFIRMED) if (c.at >= t0) c.ops.forEach(applyLocal);
     for (const e of OUTBOX) e.ops.forEach(applyLocal);
     if (!S.accounts.length && !S.categories.length) await seedDefaults(!st.data);
     saveCache();
     applyTheme();
     autoPostRecurring();
-    if (OUTBOX.some((e) => e.status === "waiting" && e.ops.every((o) => tableReady(o.table)))) { OUTBOX.forEach((e) => e.status === "waiting" && e.ops.every((o) => tableReady(o.table)) && (e.status = "pending")); flush(); }
+    OUTBOX.forEach((e) => e.status === "waiting" && e.ops.every((o) => tableReady(o.table)) && (e.status = "pending"));
+    if (OUTBOX.length) flush(true);
   }
   // Fijos con «Registrar automáticamente»: anota las fechas que ya llegaron y no están registradas.
   // La base de datos tiene un índice único (fixed_id, fixed_for), así que nunca se duplican.
@@ -1198,13 +1379,41 @@
     if (f.size > 5 * 1024 * 1024) { toast("La foto debe pesar menos de 5 MB"); e.target.value = ""; return; }
     entry.ticketFile = f; $("#ticketLbl").textContent = "Ticket listo ✓";
   });
+  // Fotos de tickets: si no se pueden subir (sin conexión) se guardan en el dispositivo y se suben después
+  const ticketsKey = () => `wc_tickets_${S.user?.id}`;
   async function uploadTicket(row, file) {
     const ext = (file.name.split(".").pop() || "jpg").toLowerCase().replace(/[^a-z0-9]/g, "");
     const path = `${S.user.id}/${row.id}-${Date.now()}.${ext}`;
-    const { error } = await sb.storage.from("tickets").upload(path, file, { contentType: file.type, upsert: false });
-    if (error) { toast("No se pudo subir el ticket: " + (isNetErr(error) ? "sin conexión" : error.message)); return; }
-    mutate({ table: "movements", op: "upsert", row: { ...row, attachment_path: path } });
-    toast("Ticket guardado");
+    const ok = await sendTicket({ movId: row.id, path, file, type: file.type });
+    if (ok === true) toast("Ticket guardado");
+    else if (ok === "queued") {
+      const q = await WCStore.get(ticketsKey(), []);
+      q.push({ movId: row.id, path, file, type: file.type });
+      const saved = await WCStore.set(ticketsKey(), q);
+      toast(saved ? "Sin conexión: el ticket se subirá solo cuando vuelva el internet" : "No se pudo guardar la foto del ticket en el dispositivo");
+    }
+  }
+  async function sendTicket(t) {
+    if (!sb) return "queued";
+    let error;
+    try { ({ error } = await sb.storage.from("tickets").upload(t.path, t.file, { contentType: t.type, upsert: true })); } catch (x) { error = x; }
+    if (error) { if (isNetErr(error) || /5\d\d|timeout/i.test(String(error.statusCode || error.message))) return "queued"; toast("No se pudo subir el ticket: " + error.message); return false; }
+    const m = S.movements.find((x) => x.id === t.movId);            // la versión actual del movimiento (por si se editó)
+    if (m) mutate({ table: "movements", op: "upsert", row: { ...m, attachment_path: t.path } });
+    return true;
+  }
+  let ticketsBusy = false;
+  async function retryTickets() {
+    if (ticketsBusy || !S.user || !navigator.onLine) return;
+    ticketsBusy = true;
+    try {
+      const q = await WCStore.get(ticketsKey(), []);
+      if (!q.length) return;
+      const left = [];
+      for (const t of q) { if (!(t.file instanceof Blob)) continue; const r = await sendTicket(t); if (r === "queued") left.push(t); }
+      await WCStore.set(ticketsKey(), left);
+      if (left.length < q.length) toast("Ticket guardado");
+    } finally { ticketsBusy = false; }
   }
   $("#ticketView").addEventListener("click", async () => {
     const m = S.movements.find((x) => x.id === entry?.id); if (!m?.attachment_path) return;
@@ -1342,7 +1551,7 @@
         status: "activo", created_at: entry.plan?.created_at || new Date().toISOString() };
       ops.push({ table: "card_plans", op: "upsert", row: planRow });
     } else if (entry.plan) ops.push({ table: "card_plans", op: "delete", id: entry.plan.id });
-    mutate(ops);
+    if (!mutate(ops)) return;                                      // no se guardó: la hoja sigue abierta para corregir
     if (entry.ticketFile) uploadTicket(row, entry.ticketFile);
     closeSheet($("#entrySheet"));
     const what = `${type === "ingreso" ? "Ingreso" : type === "transferencia" ? "Transferencia" : "Gasto"} de ${money(amount)}${planRow ? ` a ${planRow.installments} meses (${money(P(WCFin.planInstallmentsC(planRow)[0]))}/mes)` : ""} guardado`;
@@ -1489,7 +1698,7 @@
       active: true, created_at: fixedEditing?.created_at || new Date().toISOString(),
     };
     if (!row.name) { toast("Escribe un nombre"); return; }
-    mutate({ table: "fixed_payments", op: "upsert", row });
+    if (!mutate({ table: "fixed_payments", op: "upsert", row })) return;
     if (row.auto) autoPostRecurring();
     closeSheet($("#fixedSheet"));
     toast(fixedEditing ? "Guardado" : `${row.name} agregado · ${bud ? money(amount) + " " : ""}${scheduleLabel(row)}`);
@@ -1632,7 +1841,7 @@
       r.archived = $("#itemStatus").value === "archivada";
     }
     else r.kind = row?.kind || $("#itemKind").value;
-    mutate({ table, op: "upsert", row: r });
+    if (!mutate({ table, op: "upsert", row: r })) return;
     closeSheet($("#itemSheet"));
     renderSettingsLists();
   });
@@ -1727,9 +1936,11 @@
   });
   $("#logout").addEventListener("click", async () => {
     if (!confirm("¿Cerrar sesión en este dispositivo?")) return;
-    if (OUTBOX.length && !confirm(`Hay ${OUTBOX.length} cambio(s) sin sincronizar en este dispositivo. Si cierras sesión se perderán. ¿Continuar?`)) return;
-    await WCStore.del(cacheKey()); await WCStore.del(outboxKey());
-    await sb.auth.signOut();
+    // Los cambios sin enviar NO se borran: se quedan guardados y se envían cuando vuelvas a entrar con esta cuenta
+    if (OUTBOX.length) { try { await flush(true); } catch { /* */ } }
+    if (OUTBOX.length && !confirm(`Hay ${OUTBOX.length} cambio(s) que aún no se envían (sin conexión). Se quedan guardados en este dispositivo y se enviarán cuando vuelvas a entrar con tu cuenta. ¿Cerrar sesión?`)) return;
+    await WCStore.del(cacheKey());
+    try { await sb.auth.signOut({ scope: "local" }); } catch { /* sin conexión: la sesión local se borra igual */ }
     location.reload();
   });
   $("#exportCsv").addEventListener("click", () => {
@@ -1756,7 +1967,7 @@
     if (!confirm(`¿Restaurar ${total} registros de este respaldo? Se agregan o actualizan; no se borra nada.`)) return;
     for (const [table, rows] of sets) {
       const clean = rows.map((r) => ({ ...r, user_id: S.user.id }));
-      for (let i = 0; i < clean.length; i += 300) mutate({ table, op: "upsert", row: clean.slice(i, i + 300) });
+      for (let i = 0; i < clean.length; i += 300) mutate({ table, op: "upsert", row: clean.slice(i, i + 300) }, { split: true });
     }
     if (d.settings) mutate({ table: "settings", op: "upsert", row: { ...d.settings, user_id: S.user.id } });
     toast(`Respaldo restaurado: ${total} registros`);
@@ -2602,7 +2813,7 @@
     // La cola de cambios sin enviar NO se borra: se envía cuando vuelvas a entrar con la misma cuenta
     try { await flush(); } catch { /* sin conexión: se queda en la cola */ }
     ls.del(LOCK_KEY); await WCStore.del(cacheKey());
-    await sb.auth.signOut(); location.reload();
+    try { await sb.auth.signOut({ scope: "local" }); } catch { /* */ } location.reload();
   });
   async function bioRegister() {
     try {
@@ -2789,12 +3000,17 @@
   }
 
   let lastRefresh = 0;
+  let refreshTimer = 0, refreshDelay = 4000;
   async function refresh(force) {
     if (!sb || !S.user) return;
     if (!force && Date.now() - lastRefresh < 15000) return;
     lastRefresh = Date.now();
-    try { await loadRemote(); render(); notifyDue(); }
-    catch (e) { if (!isNetErr(e)) console.error(e); }
+    try { await loadRemote(); render(); notifyDue(); refreshDelay = 4000; }
+    catch (e) {
+      if (!isNetErr(e)) console.error(e);
+      // Sin conexión al abrir: se vuelve a intentar sola (4 s → 1 min) para descargar y enviar lo pendiente
+      clearTimeout(refreshTimer); refreshTimer = setTimeout(() => refresh(true), refreshDelay); refreshDelay = Math.min(60000, refreshDelay * 2);
+    }
     updateOffline();
   }
 

@@ -20,6 +20,13 @@ https://hectorayon6991.github.io/Withcash/
 
 ## Estructura
 - `js/finance.js`: motor financiero en CENTAVOS ENTEROS (saldos, totales, recurrencias, presupuestos, deudas, metas). Úsalo para cualquier suma de dinero; no sumes `Number(amount)` directamente.
+- Guardado a prueba de fallas (no romper):
+  - `mutate()` pasa cada fila por `cleanRow()` (reglas reales de la base en `DB_RULES`: largo de textos, numéricos, enteros, obligatorias) y devuelve `false` si no se pudo guardar (la hoja queda abierta).
+  - La cola se guarda al instante en localStorage (`wc_q_bk_<uid>`, copia síncrona) y en IndexedDB; al abrir se aplica encima de la caché.
+  - `flush()` clasifica fallas (`classify`): red/5xx/429/tiempo agotado → reintento con espera creciente; 401 → `refreshSession` y reintento; datos → `repair()` (pago fijo ya registrado → `insert_ignore`, llave foránea borrada → se vacía la columna o se espera al lote padre, texto/número → se reajusta). Solo lo irreparable queda en «error» (nunca se borra solo). Los lotes de respaldo (`split`) se separan si uno falla.
+  - `S.dbv = 0` = versión de la base desconocida: no se envía nada hasta saberla (una falla de red no debe bajar a la ruta antigua).
+  - Cerrar sesión u «Olvidé mi PIN» NO borran la cola. Las fotos de tickets sin conexión se guardan en IndexedDB (`wc_tickets_<uid>`) y se suben después.
+  - Peticiones con tiempo límite (`fetchWithTimeout`, 30 s; 120 s para Storage).
 - `js/store.js`: IndexedDB (caché y cola). La cola (`OUTBOX` en app.js) guarda entradas con varias operaciones que se envían juntas a la función `wc_apply` (lote atómico); una entrada solo se borra cuando el servidor la confirma. Si la base no tiene la migración 0005 (`S.dbv = 4`) la app usa el envío anterior y deja en espera las tablas nuevas.
 - Módulos: todas las secciones están en la barra inferior (`.tabbar`, se desliza de lado y se retrae al bajar con `body.dock-mini`): Inicio, Movimientos, Pagos (`viewFijos`), Reportes (`viewBalance`), Tarjetas, Cuentas, Presupuestos, Ahorros, Deudas, Suscripciones, Buscar y Ajustes. El + flotante va arriba de la barra, a la derecha.
 - Tu nombre (Ajustes → «¿Cuál es tu nombre?») se guarda en `user_metadata.full_name` de Supabase Auth (y en el dispositivo). Las ventanas no llevan barrita gris arriba.
