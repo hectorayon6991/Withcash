@@ -13,7 +13,26 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/favicon-64.png" type="image/png">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-  <link rel="stylesheet" href="css/styles.css?v=2.8.0">
+  <!-- Pantallas de arranque del iPhone (negras con el logo): evitan la pantalla blanca al abrir la app -->
+  <link rel="apple-touch-startup-image" media="(device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="icons/splash/launch-1290x2796.png">
+  <link rel="apple-touch-startup-image" media="(device-width: 440px) and (device-height: 956px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="icons/splash/launch-1320x2868.png">
+  <link rel="apple-touch-startup-image" media="(device-width: 402px) and (device-height: 874px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="icons/splash/launch-1206x2622.png">
+  <link rel="apple-touch-startup-image" media="(device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="icons/splash/launch-1179x2556.png">
+  <link rel="apple-touch-startup-image" media="(device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="icons/splash/launch-1284x2778.png">
+  <link rel="apple-touch-startup-image" media="(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="icons/splash/launch-1170x2532.png">
+  <link rel="apple-touch-startup-image" media="(device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="icons/splash/launch-1125x2436.png">
+  <link rel="apple-touch-startup-image" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="icons/splash/launch-1242x2688.png">
+  <link rel="apple-touch-startup-image" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" href="icons/splash/launch-828x1792.png">
+  <link rel="apple-touch-startup-image" media="(device-width: 414px) and (device-height: 736px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="icons/splash/launch-1242x2208.png">
+  <link rel="apple-touch-startup-image" media="(device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" href="icons/splash/launch-750x1334.png">
+  <link rel="apple-touch-startup-image" media="(device-width: 320px) and (device-height: 568px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" href="icons/splash/launch-640x1136.png">
+  <!-- Estilos mínimos en línea: fondo negro y logo desde el primer instante, antes de cargar el resto -->
+  <style>
+    html, body { background: #000; margin: 0; }
+    .splash { position: fixed; inset: 0; z-index: 200; display: grid; place-items: center; background: #000; transition: opacity .4s ease; }
+    .splash img { width: 220px; height: auto; }
+  </style>
+  <link rel="stylesheet" href="css/styles.css?v=2.8.1">
 </head>
 <body>
   <!-- Pantalla de arranque con el logo (se quita al terminar de cargar) -->
@@ -370,11 +389,11 @@
   </div>
   <div id="printArea" class="print-area" aria-hidden="true"></div>
 
-  <script src="js/icons.js?v=2.8.0"></script>
-  <script src="js/finance.js?v=2.8.0"></script>
-  <script src="js/store.js?v=2.8.0"></script>
-  <script src="js/config.js?v=2.8.0"></script>
+  <script src="js/icons.js?v=2.8.1"></script>
+  <script src="js/finance.js?v=2.8.1"></script>
+  <script src="js/store.js?v=2.8.1"></script>
+  <script src="js/config.js?v=2.8.1"></script>
   <script src="js/vendor/supabase.js"></script>
-  <script src="js/app.js?v=2.8.0"></script>
+  <script src="js/app.js?v=2.8.1"></script>
 </body>
 </html>

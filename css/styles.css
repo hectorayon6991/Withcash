@@ -636,7 +636,8 @@ html.masked .eye .e-hide { display: grid; }
 .brand-logo { width: 200px; height: auto; margin: 0 auto 6px; display: block; filter: drop-shadow(0 6px 26px rgba(60, 140, 255, .35)); }
 .lock-logo { width: 140px; height: auto; display: block; margin: 0 auto 8px; filter: drop-shadow(0 4px 18px rgba(60, 140, 255, .3)); }
 .splash { position: fixed; inset: 0; z-index: 200; display: grid; place-items: center; background: #000; transition: opacity .4s ease; }
-.splash img { width: 220px; height: auto; filter: drop-shadow(0 8px 32px rgba(60, 140, 255, .4)); animation: wcPop .6s ease both; }
+/* El logo ya está en la pantalla de arranque del iPhone: aquí sigue en el mismo lugar y al terminar se agranda y se desvanece */
+.splash img { width: 220px; height: auto; transition: transform .45s cubic-bezier(.2,.7,.2,1); }
 .splash.out { opacity: 0; pointer-events: none; }
+.splash.out img { transform: scale(1.12); }
 @keyframes wcPop { from { opacity: 0; transform: scale(.92); } to { opacity: 1; transform: none; } }
-:root[data-theme="light"] .splash { background: #f4f4f6; }
