@@ -51,5 +51,5 @@ Estado real del proyecto. Se actualiza en cada entrega.
 
 (Limpieza hecha el 1 nov 2026: usuario de prueba y `pg_net` eliminados.)
 
-2. En Supabase → Authentication: activar *Leaked password protection*.
-4. Probar en sus dispositivos reales.
+1. En Supabase → Authentication: activar *Leaked password protection*.
+2. Probar en sus dispositivos reales.
