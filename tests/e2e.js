@@ -56,6 +56,8 @@ async function boot(browser, { dbv = 5, device = "iPhone 13", offline = false, d
     return r.fulfill({ status: 201, contentType: "application/json", body: "[]" });
   });
   await p.goto("http://localhost:8765/"); await p.waitForSelector("#appShell:not([hidden])"); await p.waitForTimeout(900);
+  server.maskedAtStart = await p.evaluate(() => document.documentElement.classList.contains("masked"));
+  await p.evaluate(() => document.documentElement.classList.remove("masked"));   // las pruebas leen los montos
   return { p, ctx, errs, server };
 }
 const txt = async (p, sel) => (await p.innerText(sel)).replace(/\s+/g, " ");
@@ -80,6 +82,24 @@ process.on("unhandledRejection", (e) => { check("la prueba terminó sin interrup
   // ---------- iPhone, base v5 ----------
   let { p, errs, server, ctx } = await boot(browser);
   check("arranque sin errores (iPhone)", !errs.length, errs.join(" | "));
+  // Privacidad: al abrir, tu dinero está oculto; el ojito lo muestra y lo vuelve a ocultar (las deudas no se ocultan)
+  {
+    await p.evaluate(() => document.documentElement.classList.add("masked"));
+    const hid = await txt(p, ".card.tone");
+    await p.click(".card.tone [data-eye]"); const shown = await txt(p, ".card.tone");
+    await p.click(".card.tone [data-eye]"); const again = await p.evaluate(() => document.documentElement.classList.contains("masked"));
+    check("privacidad: montos ocultos al abrir y el ojito los muestra/oculta", server.maskedAtStart && /\$•••/.test(hid) && !/\$•••/.test(shown) && /\$[\d,]+\.\d\d/.test(shown) && again, hid.slice(0, 90) + " → " + shown.slice(0, 90));
+    await p.evaluate(() => document.documentElement.classList.remove("masked"));
+  }
+  // Menú inferior con todas las secciones
+  {
+    const tabs = await p.$$eval(".tabbar [data-tab]", (bs) => bs.map((b) => b.dataset.tab));
+    await p.click('.tabbar [data-tab="suscripciones"]'); await p.waitForTimeout(250);
+    const title = await txt(p, "#monthTitle");
+    const fab = await p.evaluate(() => { const f = document.querySelector("#fab").getBoundingClientRect(), t = document.querySelector(".tabbar").getBoundingClientRect(); return f.bottom <= t.top && f.right <= innerWidth; });
+    check("menú inferior: todas las secciones y + arriba del menú", tabs.length === 12 && !(await p.$("#openMore")) && /Suscripciones/.test(title) && fab, tabs.join(","));
+    await p.click('.tabbar [data-tab="inicio"]'); await p.waitForTimeout(250);
+  }
   const w = await p.evaluate(() => [document.documentElement.scrollWidth, innerWidth]); check("sin desbordamiento horizontal", w[0] <= w[1], w.join("/"));
   await addEntry(p, { type: "ingreso", amount: 5000, cat: "c4", acc: "a2", note: "Sueldo" });
   check("1. registrar ingreso", server.data.movements.some((m) => m.type === "ingreso" && Number(m.amount) === 5000));
@@ -125,7 +145,7 @@ process.on("unhandledRejection", (e) => { check("la prueba terminó sin interrup
   await p.click('.tabbar [data-tab="inicio"]'); await p.waitForTimeout(250);
   check("12. presupuesto superado genera alerta", /Te pasaste/.test(await txt(p, "#view")));
   // Ahorros
-  await p.click("#openMore"); await p.waitForTimeout(200); await p.click('[data-mod="ahorros"]'); await p.waitForTimeout(300);
+  await p.click('.tabbar [data-tab="ahorros"]'); await p.waitForTimeout(300);
   await p.click("[data-new-goal]"); await p.waitForTimeout(200);
   await p.fill("#gName", "Fondo de emergencia"); await p.fill("#gTarget", "10000"); await p.fill("#gDate", "2027-11-16"); await p.fill("#gInitial", "1000");
   await p.click('#dynBody [data-a="save"]'); await p.waitForTimeout(350);
@@ -137,7 +157,7 @@ process.on("unhandledRejection", (e) => { check("la prueba terminó sin interrup
   check("13b. meta y aportación inicial en un mismo lote atómico", server.rpc.some((ops) => ops.length === 2 && ops[0].table === "savings_goals" && ops[1].table === "savings_contributions"));
   await p.keyboard.press("Escape");
   // Deudas
-  await p.click("#openMore"); await p.waitForTimeout(200); await p.click('[data-mod="deudas"]'); await p.waitForTimeout(300);
+  await p.click('.tabbar [data-tab="deudas"]'); await p.waitForTimeout(300);
   await p.click('[data-new-debt="debo"]'); await p.waitForTimeout(200);
   await p.fill("#dName", "Préstamo personal"); await p.fill("#dAmt", "6000"); await p.click('#dynBody [data-a="save"]'); await p.waitForTimeout(300);
   const debt = server.data.debts[0];
@@ -178,7 +198,7 @@ process.on("unhandledRejection", (e) => { check("la prueba terminó sin interrup
     const d = fixtures();
     d.fixed_payments.push(F("t1", "Klar", "tarjeta", 1000, { day: 20 }), F("t2", "Vexi", "tarjeta", 1000, { day: 16 }));
     const T = await boot(browser, { data: d });
-    await T.p.click("#openMore"); await T.p.waitForTimeout(200); await T.p.click('[data-mod="tarjetas"]'); await T.p.waitForTimeout(300);
+    await T.p.click('.tabbar [data-tab="tarjetas"]'); await T.p.waitForTimeout(300);
     await T.p.click("[data-cards-from-pays]"); await T.p.waitForTimeout(200);
     const boxes = await T.p.$$(".cc-new");
     await (await boxes[0].$('[data-k="lim"]')).fill("8000"); await (await boxes[0].$('[data-k="debt"]')).fill("1000");
@@ -204,7 +224,7 @@ process.on("unhandledRejection", (e) => { check("la prueba terminó sin interrup
     const chip2 = await T.p.innerText('#payChips [data-pay-acc="a3"]');
     await T.p.evaluate(() => document.querySelector("#entrySheet").close()); await T.p.waitForTimeout(100);
     check("forma de pago: el disponible de la tarjeta baja solo", /Disponible \$19,250/.test(chip2), chip2.replace(/\s+/g, " "));
-    await T.p.click("#openMore"); await T.p.waitForTimeout(150); await T.p.click('[data-mod="tarjetas"]'); await T.p.waitForTimeout(250);
+    await T.p.click('.tabbar [data-tab="tarjetas"]'); await T.p.waitForTimeout(250);
     const nuBlock = await T.p.evaluate(() => [...document.querySelectorAll(".cc")].find((x) => x.innerText.includes("Nu"))?.innerText || "");
     check("tarjetas: corte actual vs siguiente corte", /Siguiente corte/.test(nuBlock) && /\$750/.test(nuBlock), nuBlock.replace(/\s+/g, " ").slice(0, 200));
     // Compra con Klar y luego corregir «cuánto debo» a 1,200 → la deuda queda exacta, sin tocar el historial
@@ -219,7 +239,7 @@ process.on("unhandledRejection", (e) => { check("la prueba terminó sin interrup
     const ini = await txt(T.p, "#view");
     check("comprometido incluye la deuda de tarjetas sin contar dos veces las compras", /Tarjetas \$3,200\.00/.test(ini) && /debes \$4,450\.00 en total; \$1,250\.00 ya está en tus gastos/.test(ini), (ini.match(/Comprometido en pagos[^|]{0,160}/) || [""])[0]);
     check("tarjetas sin errores", !T.errs.length, T.errs.join(" | "));
-    if (process.env.SHOTS) { await T.p.click("#openMore"); await T.p.waitForTimeout(150); await T.p.click('[data-mod="tarjetas"]'); await T.p.waitForTimeout(300); await T.p.screenshot({ path: process.env.SHOTS + "/tarjetas.png", fullPage: true }); }
+    if (process.env.SHOTS) { await T.p.click('.tabbar [data-tab="tarjetas"]'); await T.p.waitForTimeout(300); await T.p.screenshot({ path: process.env.SHOTS + "/tarjetas.png", fullPage: true }); }
     await T.ctx.close();
   }
 
@@ -240,7 +260,7 @@ process.on("unhandledRejection", (e) => { check("la prueba terminó sin interrup
     check("a meses: compra y plan se guardan juntos (mismo lote)", !!mov && !!plan && plan.movement_id === mov.id && plan.installments === 3 && Number(plan.total) === 1160 && plan.first_month === "2026-12"
       && M.server.rpc.some((ops) => ops.some((o) => o.table === "movements") && ops.some((o) => o.table === "card_plans")), JSON.stringify(plan));
     // Deuda que ya existía: 1160 a 3 pagos, ya pagué 1, el siguiente se cobra en diciembre
-    await M.p.click("#openMore"); await M.p.waitForTimeout(150); await M.p.click('[data-mod="tarjetas"]'); await M.p.waitForTimeout(300);
+    await M.p.click('.tabbar [data-tab="tarjetas"]'); await M.p.waitForTimeout(300);
     let block = await txt(M.p, '[data-credit="a3"]');
     check("a meses: la tarjeta muestra el plan con su mensualidad", /Mercado Libre/.test(block) && /Pago 1 de 3/.test(block) && /\$386\.67\/mes/.test(block), block.slice(0, 260));
     check("a meses: el siguiente corte cobra solo la mensualidad", /Siguiente corte[^$]*\$386\.67/.test(block), block.slice(0, 400));
@@ -259,7 +279,7 @@ process.on("unhandledRejection", (e) => { check("la prueba terminó sin interrup
     await M.p.click('#msiChips [data-msi="1"]'); await M.p.click("#entryForm button[type=submit]"); await M.p.waitForTimeout(400);
     check("a meses: al editar la compra se ve el plan y pasarla a contado lo quita", /active/.test(sel || "") && !d.card_plans.some((x) => x.movement_id === mov.id) && d.card_plans.length === 1, sel);
     check("a meses sin errores", !M.errs.length, M.errs.join(" | "));
-    if (process.env.SHOTS) { await M.p.click("#openMore"); await M.p.waitForTimeout(150); await M.p.click('[data-mod="tarjetas"]'); await M.p.waitForTimeout(300); await M.p.screenshot({ path: process.env.SHOTS + "/meses.png", fullPage: true }); }
+    if (process.env.SHOTS) { await M.p.click('.tabbar [data-tab="tarjetas"]'); await M.p.waitForTimeout(300); await M.p.screenshot({ path: process.env.SHOTS + "/meses.png", fullPage: true }); }
     await M.ctx.close();
   }
 

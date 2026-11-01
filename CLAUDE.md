@@ -21,7 +21,8 @@ https://hectorayon6991.github.io/Withcash/
 ## Estructura
 - `js/finance.js`: motor financiero en CENTAVOS ENTEROS (saldos, totales, recurrencias, presupuestos, deudas, metas). Úsalo para cualquier suma de dinero; no sumes `Number(amount)` directamente.
 - `js/store.js`: IndexedDB (caché y cola). La cola (`OUTBOX` en app.js) guarda entradas con varias operaciones que se envían juntas a la función `wc_apply` (lote atómico); una entrada solo se borra cuando el servidor la confirma. Si la base no tiene la migración 0005 (`S.dbv = 4`) la app usa el envío anterior y deja en espera las tablas nuevas.
-- Módulos: Inicio, Movimientos, Pagos (`viewFijos`), Reportes (`viewBalance`) en la barra; Cuentas, Presupuestos, Ahorros, Deudas, Suscripciones, Buscar y Configuración en el menú «Más» (`openMore`). Formularios de módulos en la ventana genérica `openDyn`.
+- Módulos: todas las secciones están en la barra inferior (`.tabbar`, se desliza de lado y se retrae al bajar con `body.dock-mini`): Inicio, Movimientos, Pagos (`viewFijos`), Reportes (`viewBalance`), Tarjetas, Cuentas, Presupuestos, Ahorros, Deudas, Suscripciones, Buscar y Ajustes. El + flotante va arriba de la barra, a la derecha.
+- Privacidad: los montos de dinero propio (no deudas ni gastos) se pintan con `pm(n)` y se ocultan con `html.masked`; el ojito (`eyeBtn()`, `[data-eye]`) los muestra/oculta y se vuelven a ocultar al abrir o regresar a la app. Formularios de módulos en la ventana genérica `openDyn`.
 - `js/app.js`: toda la lógica (estado, caché local + cola sin conexión, vistas Inicio/Movimientos/Fijos/Balance, ajustes, guía de Atajos).
 - Tablas: settings, accounts, categories, fixed_payments, movements, api_keys (todas con RLS por `user_id`).
 - Fijos (`fixed_payments`): `kind` = servicio | tarjeta | suscripcion | deuda (pagos), `ingreso` (sueldo) o

@@ -95,6 +95,14 @@
 
   // ---------- Dinero ----------
   let _fmt = null, _fmtCur = null;
+  // Privacidad: los montos de tu dinero (no deudas) se muestran como $••••••• hasta tocar el ojito.
+  // Al abrir la app o volver a ella siempre se ocultan de nuevo.
+  const pm = (n) => `<span class="priv"><span class="pv">${money(n)}</span><span class="pm" aria-label="Oculto">$•••••••</span></span>`;
+  const eyeBtn = () => `<button type="button" class="eye" data-eye aria-label="Mostrar u ocultar montos"><span class="e-show">${ico("eye")}</span><span class="e-hide">${ico("eyeOff")}</span></button>`;
+  const maskMoney = (on = true) => document.documentElement.classList.toggle("masked", on);
+  maskMoney(true);
+  document.addEventListener("visibilitychange", () => { if (document.hidden) maskMoney(true); });
+  document.addEventListener("click", (e) => { if (e.target.closest("[data-eye]")) { e.preventDefault(); e.stopPropagation(); maskMoney(!document.documentElement.classList.contains("masked")); } }, true);
   const money = (n, opts = {}) => {
     const cur = S.settings.currency || "MXN";
     if (!_fmt || _fmtCur !== cur) {
@@ -474,6 +482,8 @@
     $("#nextMonth").style.visibility = mod || S.ym >= addMonths(ymOf(today()), 1) ? "hidden" : "visible";
     $("#prevMonth").style.visibility = mod ? "hidden" : "visible";
     $$(".tabbar button").forEach((b) => b.classList.toggle("active", b.dataset.tab === S.tab));
+    const act = $(".tabbar button.active"), bar = $(".tabbar");
+    if (act && bar.scrollWidth > bar.clientWidth) { const l = act.offsetLeft - (bar.clientWidth - act.offsetWidth) / 2; bar.scrollTo({ left: Math.max(0, l), behavior: "smooth" }); }
     const v = $("#view");
     v.innerHTML = ({ inicio: viewInicio, movimientos: viewMovs, fijos: viewFijos, balance: viewBalance,
       cuentas: viewCuentas, tarjetas: viewTarjetas, presupuestos: viewPresupuestos, ahorros: viewAhorros, deudas: viewDeudas, suscripciones: viewSuscripciones })[S.tab]();
@@ -678,23 +688,23 @@
 
     // 1) Disponible — tono verde agua
     let html = `<section class="card tone" style="--t:#5eead4">
-      <div class="c-head"><span class="c-title">Balance del mes</span>${pill(status, "#5eead4")}</div>
+      <div class="c-head"><span class="c-title">Balance del mes ${eyeBtn()}</span>${pill(status, "#5eead4")}</div>
       <div class="net">
-        <div><div class="big num ${avail < 0 ? "neg" : ""}">${money(avail)}</div>
-          <div class="delta-line ${t.net < 0 ? "neg" : "pos"}">${ico(t.net < 0 ? "arrowDown" : "arrowUp", "i-sm")} ${money(Math.abs(t.net))}${carry.amount > 0 && t.net ? ` (${(t.net / carry.amount * 100).toFixed(1)}%)` : ""} <span class="muted">en ${monthName(ym)}</span></div></div>
+        <div><div class="big num ${avail < 0 ? "neg" : ""}">${pm(avail)}</div>
+          <div class="delta-line ${t.net < 0 ? "neg" : "pos"}">${ico(t.net < 0 ? "arrowDown" : "arrowUp", "i-sm")} ${pm(Math.abs(t.net))}${carry.amount > 0 && t.net ? ` (${(t.net / carry.amount * 100).toFixed(1)}%)` : ""} <span class="muted">en ${monthName(ym)}</span></div></div>
         ${sparkline(ym, carry.amount)}
       </div>
-      ${carry.months ? `<p class="hint">${carry.amount >= 0 ? "Incluye" : "Se restan"} <b class="num">${money(Math.abs(carry.amount))}</b> ${carry.amount >= 0 ? "que te sobraron" : "que quedaron en contra"} de ${fromLbl}</p>` : ""}
+      ${carry.months ? `<p class="hint">${carry.amount >= 0 ? "Incluye" : "Se restan"} <b class="num">${pm(Math.abs(carry.amount))}</b> ${carry.amount >= 0 ? "que te sobraron" : "que quedaron en contra"} de ${fromLbl}</p>` : ""}
       <div class="split2">
-        <div><span class="k">Ingresos</span><b class="num pos">${money(t.inc)}</b></div>
+        <div><span class="k">Ingresos</span><b class="num pos">${pm(t.inc)}</b></div>
         <div><span class="k">Gastos</span><b class="num">${money(t.exp)}</b></div>
       </div>`;
     // Saldo real: lo comprometido para pagos del mes y lo que queda libre
     const cm = commitments(ym);
     if (cm.bills || cm.incomes || cm.cardsDebt) html += `<div class="split2 thin">
         <div><span class="k">Comprometido en pagos</span><b class="num neg">${money(cm.bills)}</b>${cm.cardsDebt ? `<small class="cm-sub">Pagos fijos ${money(cm.fixed)} · Tarjetas ${money(cm.cardsPre)}</small>` : ""}</div>
-        <div><span class="k">Libre después de pagos</span><b class="num ${avail - cm.bills < 0 ? "neg" : ""}">${money(avail - cm.bills)}</b></div>
-      </div>${cm.cardsDebt > cm.cardsPre ? `<p class="hint" style="margin:8px 0 0">${ico("card", "i-sm")} En tarjetas debes ${money(cm.cardsDebt)} en total; ${money(P(C(cm.cardsDebt) - C(cm.cardsPre)))} ya está en tus gastos del mes.</p>` : ""}${cm.incomes ? `<p class="hint" style="margin:8px 0 0">${ico("briefcase", "i-sm")} Por recibir este mes: <b class="num pos">${money(cm.incomes)}</b></p>` : ""}`;
+        <div><span class="k">Libre después de pagos</span><b class="num ${avail - cm.bills < 0 ? "neg" : ""}">${pm(avail - cm.bills)}</b></div>
+      </div>${cm.cardsDebt > cm.cardsPre ? `<p class="hint" style="margin:8px 0 0">${ico("card", "i-sm")} En tarjetas debes ${money(cm.cardsDebt)} en total; ${money(P(C(cm.cardsDebt) - C(cm.cardsPre)))} ya está en tus gastos del mes.</p>` : ""}${cm.incomes ? `<p class="hint" style="margin:8px 0 0">${ico("briefcase", "i-sm")} Por recibir este mes: <b class="num pos">${pm(cm.incomes)}</b></p>` : ""}`;
     if (budget > 0) {
       const pct = t.exp / budget;
       html += `<div class="bar-soft ${pct > 1 ? "over" : ""}"><i style="width:${Math.min(100, pct * 100).toFixed(1)}%"></i></div>
@@ -708,16 +718,16 @@
     // Indicadores principales (periodo elegido)
     const pr = periodRange(), tr = totalsRange(pr.from, pr.to), mp = moneyPicture(), nwI = netWorth();
     const ind = (k, v, cls = "", sub = "") => `<div class="ind"><span>${k}</span><b class="num ${cls}">${v}</b>${sub ? `<small>${sub}</small>` : ""}</div>`;
-    html = periodChips() + html + `<section class="card"><div class="c-head"><span class="c-title">Resumen</span>${pill(pr.label, "#a1a1a8", "calendar")}</div>
+    html = periodChips() + html + `<section class="card"><div class="c-head"><span class="c-title">Resumen ${eyeBtn()}</span>${pill(pr.label, "#a1a1a8", "calendar")}</div>
       <div class="ind-grid">
-        ${ind("Disponible real", money(mp.available), mp.available < 0 ? "neg" : "pos", "saldo − reservado − compromisos")}
-        ${ind("Saldo en cuentas", money(mp.liquid))}
-        ${ind("Ingresos", money(tr.inc), "pos")}
+        ${ind("Disponible real", pm(mp.available), mp.available < 0 ? "neg" : "pos", "saldo − reservado − compromisos")}
+        ${ind("Saldo en cuentas", pm(mp.liquid))}
+        ${ind("Ingresos", pm(tr.inc), "pos")}
         ${ind("Gastos", money(tr.exp))}
         ${ind("Comprometido", money(mp.commitments), mp.commitments ? "neg" : "", mp.cardsDebt ? "pagos del mes + tarjetas" : "pagos por hacer este mes")}
         ${ind("Pagos pendientes", String(mp.pendingCount), mp.pendingCount ? "warn-t" : "")}
         ${ind("Deuda total", money(nwI.debts), nwI.debts ? "neg" : "")}
-        ${ind("Ahorro acumulado", money(mp.reserved), "pos")}
+        ${ind("Ahorro acumulado", pm(mp.reserved), "pos")}
       </div></section>`;
 
     // Alertas inteligentes
@@ -730,7 +740,7 @@
     if (accs.length) {
       html += `<div class="acc-scroll">${accs.map((a) => {
         const b = accountBalance(a), c = colorFor(a.id);
-        return `<div class="acc-card">${tile(iconKey(a.icon, a.name, "wallet"), c, "sm")}<div><div class="n">${esc(a.name)}</div><div class="v num ${b < 0 ? "neg" : ""}">${money(b)}</div></div></div>`;
+        return `<div class="acc-card">${tile(iconKey(a.icon, a.name, "wallet"), c, "sm")}<div><div class="n">${esc(a.name)}</div><div class="v num ${b < 0 ? "neg" : ""}">${isCredit(a) ? money(b) : pm(b)}</div></div></div>`;
       }).join("")}</div>`;
     }
 
@@ -1972,7 +1982,7 @@
     activeAccs().filter(filter).map((a) => `<option value="${a.id}" ${a.id === sel ? "selected" : ""}>${esc(a.name)}</option>`).join("");
   const needDb = () => { if (dbReady()) return false; toast("Esta función estará disponible cuando se aplique la actualización de la base de datos"); return true; };
 
-  // Secciones secundarias (menú «Más»)
+  // Secciones secundarias (en el menú inferior)
   const MODULES = [
     { tab: "tarjetas", name: "Tarjetas", icon: "card", color: "#ff8fa3" },
     { tab: "cuentas", name: "Cuentas", icon: "wallet", color: "#7aa2ff" },
@@ -1983,18 +1993,6 @@
     { tab: "buscar", name: "Buscar", icon: "search", color: "#67d4ff" },
     { tab: "config", name: "Configuración", icon: "sliders", color: "#a1a1a8" },
   ];
-  function openMore() {
-    openDyn(`<h2>Más secciones</h2><div class="mod-grid">${MODULES.map((m) => `<button type="button" class="mod" data-mod="${m.tab}">${tile(m.icon, m.color)}<span>${m.name}</span></button>`).join("")}</div>`, (root) => {
-      root.querySelector(".mod-grid").addEventListener("click", (e) => {
-        const b = e.target.closest("[data-mod]"); if (!b) return;
-        closeDyn();
-        if (b.dataset.mod === "config") openSettings();
-        else if (b.dataset.mod === "buscar") openSearch();
-        else goTab(b.dataset.mod);
-      });
-    });
-  }
-
   // Periodos para Inicio y Reportes
   const PERIODS = [["mes", "Este mes"], ["prev", "Mes anterior"], ["3m", "3 meses"], ["6m", "6 meses"], ["anio", "Este año"], ["custom", "Personalizado"]];
   function periodRange() {
@@ -2026,17 +2024,17 @@
   const ACC_GROUPS = [["efectivo", "Efectivo"], ["banco", "Cuentas bancarias"], ["debito", "Débito"], ["ahorro", "Ahorro"], ["inversion", "Inversión"], ["credito", "Tarjetas de crédito"], ["otra", "Personalizadas"]];
   function viewCuentas() {
     const accs = activeAccs(), nw = netWorth(), mp = moneyPicture();
-    let html = `<section class="card tone" style="--t:#7aa2ff"><div class="c-head"><span class="c-title">Saldo total</span>${pill(`${accs.length} cuentas`, "#7aa2ff", "wallet")}</div>
-      <div class="big num" style="font-size:32px;font-weight:700">${money(mp.liquid)}</div>
-      <div class="split3"><div><span class="k">Reservado</span><b class="num">${money(mp.reserved)}</b></div><div><span class="k">Deuda</span><b class="num neg">${money(nw.debts)}</b></div><div><span class="k">Patrimonio</span><b class="num ${nw.net < 0 ? "neg" : ""}">${money(nw.net)}</b></div></div></section>`;
+    let html = `<section class="card tone" style="--t:#7aa2ff"><div class="c-head"><span class="c-title">Saldo total ${eyeBtn()}</span>${pill(`${accs.length} cuentas`, "#7aa2ff", "wallet")}</div>
+      <div class="big num" style="font-size:32px;font-weight:700">${pm(mp.liquid)}</div>
+      <div class="split3"><div><span class="k">Reservado</span><b class="num">${pm(mp.reserved)}</b></div><div><span class="k">Deuda</span><b class="num neg">${money(nw.debts)}</b></div><div><span class="k">Patrimonio</span><b class="num ${nw.net < 0 ? "neg" : ""}">${pm(nw.net)}</b></div></div></section>`;
     for (const [k, label] of ACC_GROUPS) {
       const list = accs.filter((a) => (a.kind || "debito") === k);
       if (!list.length) continue;
-      html += `<section class="card"><div class="c-head"><span class="c-title">${label}</span><span class="hint num">${money(sumP(list, accountBalance))}</span></div><ul class="list">${list.map((a) => {
+      html += `<section class="card"><div class="c-head"><span class="c-title">${label}</span><span class="hint num">${k === "credito" ? money(sumP(list, accountBalance)) : pm(sumP(list, accountBalance))}</span></div><ul class="list">${list.map((a) => {
         const b = accountBalance(a), ci = isCredit(a) ? creditInfo(a) : null;
         return `<li class="item tap" data-acc-detail="${a.id}">${tile(iconKey(a.icon, a.name, "wallet"), a.color || colorFor(a.id))}
           <div class="main"><div class="t">${esc(a.name)}</div><div class="s">${[a.institution, a.currency && a.currency !== (S.settings.currency || "MXN") ? a.currency : null, ci && ci.limit ? `Disponible ${money(ci.avail)}` : null].filter(Boolean).map(esc).join(" · ") || ACC_KIND[a.kind] || ""}</div></div>
-          <div class="amt num ${b < 0 ? "neg" : ""}">${money(b)}</div></li>`;
+          <div class="amt num ${b < 0 ? "neg" : ""}">${ci ? money(b) : pm(b)}</div></li>`;
       }).join("")}</ul></section>`;
     }
     const archived = S.accounts.filter((a) => a.archived);
@@ -2645,8 +2643,22 @@
   }
   $(".tabbar").addEventListener("click", (e) => {
     const b = e.target.closest("[data-tab]"); if (!b) return;
-    goTab(b.dataset.tab);
+    if (b.dataset.tab === "config") openSettings();
+    else if (b.dataset.tab === "buscar") openSearch();
+    else goTab(b.dataset.tab);
   });
+  // El menú se retrae (más compacto) al bajar y se expande al subir
+  (() => {
+    let lastY = scrollY, ticking = false;
+    addEventListener("scroll", () => {
+      if (ticking) return; ticking = true;
+      requestAnimationFrame(() => {
+        const y = scrollY, d = y - lastY;
+        if (Math.abs(d) > 6) { document.body.classList.toggle("dock-mini", d > 0 && y > 80); lastY = y; }
+        ticking = false;
+      });
+    }, { passive: true });
+  })();
 
   // Gesto: deslizar desde el borde izquierdo hacia la derecha = regresar
   (() => {
@@ -2734,7 +2746,6 @@
     mqTimer = setTimeout(() => { S.mf_q = e.target.value; const pos = e.target.selectionStart; render(); const i = $('[data-mfilter="q"]'); if (i) { i.focus(); i.setSelectionRange(pos, pos); } }, 250);
   });
   $("#view").addEventListener("click", (e) => { if (e.target.closest("[data-mreset]")) { ["q", "from", "to", "min", "max", "all"].forEach((k) => delete S["mf_" + k]); S.movAcc = null; render(); } });
-  $("#openMore").addEventListener("click", openMore);
   $("#view").addEventListener("change", (e) => {
     if (e.target.id === "pFrom" || e.target.id === "pTo") { S.periodFrom = $("#pFrom").value; S.periodTo = $("#pTo").value; render(); }
     if (e.target.dataset.mfilter && e.target.dataset.mfilter !== "q") {

@@ -44,7 +44,7 @@ body {
   font: 16px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", Roboto, sans-serif;
   letter-spacing: -.01em;
   min-height: 100dvh;
-  padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom) + 40px);
+  padding-bottom: calc(var(--nav-h) + env(safe-area-inset-bottom) + 110px);
   -webkit-user-select: none; user-select: none;
 }
 input, textarea, select, code, .codebox { -webkit-user-select: text; user-select: text; }
@@ -149,38 +149,64 @@ button { cursor: pointer; }
 .stack { display: grid; gap: 8px; }
 .file-btn { cursor: pointer; }
 
-/* Menú inferior: burbuja flotante centrada; la sección activa se expande con su nombre */
+/* Menú inferior: burbuja flotante centrada con todas las secciones (solo íconos; la activa muestra su nombre).
+   Si no caben, la burbuja se desliza de lado. Al bajar en la página se retrae (más compacta). */
 .dock {
   position: fixed; left: 0; right: 0; z-index: 20; pointer-events: none;
   bottom: calc(env(safe-area-inset-bottom) + 14px);
-  display: flex; justify-content: center; align-items: center; gap: 10px;
+  display: flex; justify-content: center; align-items: center; padding: 0 16px;
 }
 .tabbar {
   pointer-events: auto; display: flex; align-items: center; gap: 2px; padding: 6px;
-  height: var(--nav-h); border-radius: 999px;
+  height: var(--nav-h); border-radius: 999px; max-width: 100%;
+  overflow-x: auto; overflow-y: hidden; scrollbar-width: none; overscroll-behavior-x: contain; touch-action: pan-x;
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%);
+          mask-image: linear-gradient(90deg, transparent 0, #000 14px, #000 calc(100% - 14px), transparent 100%);
   background: var(--dock-bg); border: 1px solid var(--soft-2);
   -webkit-backdrop-filter: blur(22px) saturate(160%); backdrop-filter: blur(22px) saturate(160%);
   box-shadow: 0 12px 40px rgba(0,0,0,.6);
+  transition: height .3s ease, padding .3s ease;
 }
+.tabbar::-webkit-scrollbar { display: none; }
 .tabbar button {
-  border: 0; background: none; color: var(--muted); height: 48px; min-width: 46px; padding: 0 12px;
+  flex: none; border: 0; background: none; color: var(--muted); height: 48px; min-width: 46px; padding: 0 12px;
   border-radius: 999px; display: flex; align-items: center; justify-content: center; gap: 0; font-size: 13px; font-weight: 650;
-  transition: background .3s ease, color .3s ease, gap .3s ease, padding .3s ease;
+  transition: background .3s ease, color .3s ease, gap .3s ease, padding .3s ease, height .3s ease, min-width .3s ease;
 }
-.tabbar button .i { width: 23px; height: 23px; }
+.tabbar button .i { width: 23px; height: 23px; transition: width .3s ease, height .3s ease; }
 .tabbar button .lbl { max-width: 0; overflow: hidden; white-space: nowrap; opacity: 0; transition: max-width .35s ease, opacity .25s ease; }
 .tabbar button.active { background: var(--surface-3); color: var(--text); gap: 7px; padding: 0 15px 0 12px; }
 .tabbar button.active .lbl { max-width: 110px; opacity: 1; }
 .tabbar button.active .i { color: var(--accent); }
 .tabbar button:active { transform: scale(.94); }
+body.dock-mini .tabbar { height: 48px; padding: 4px; }
+body.dock-mini .tabbar button { height: 38px; min-width: 38px; padding: 0 9px; }
+body.dock-mini .tabbar button .i { width: 20px; height: 20px; }
+body.dock-mini .tabbar button.active { gap: 0; padding: 0 9px; }
+body.dock-mini .tabbar button.active .lbl { max-width: 0; opacity: 0; }
+/* Botón + flotante: arriba del menú, a la derecha */
 .fab {
-  pointer-events: auto; width: var(--nav-h); height: var(--nav-h); border-radius: 50%; border: 0; padding: 0;
+  position: fixed; z-index: 21; right: 18px; bottom: calc(env(safe-area-inset-bottom) + 14px + var(--nav-h) + 14px);
+  pointer-events: auto; width: 58px; height: 58px; border-radius: 50%; border: 0; padding: 0;
   background: var(--fab-bg); color: var(--fab-ink); display: grid; place-items: center;
-  box-shadow: 0 10px 30px rgba(127,127,127,.18), 0 8px 24px rgba(0,0,0,.35);
-  transition: transform .15s ease;
+  box-shadow: 0 10px 30px rgba(127,127,127,.18), 0 8px 24px rgba(0,0,0,.45);
+  transition: transform .15s ease, bottom .3s ease;
 }
+body.dock-mini .fab { bottom: calc(env(safe-area-inset-bottom) + 14px + 48px + 14px); }
 .fab .i { width: 28px; height: 28px; stroke-width: 2.2; }
 .fab:active { transform: scale(.92); }
+
+/* Privacidad: montos ocultos hasta tocar el ojito */
+.priv .pm { display: none; letter-spacing: .04em; }
+html.masked .priv .pv { display: none; }
+html.masked .priv .pm { display: inline; }
+.eye { border: 0; background: var(--surface-2); color: var(--text-2); width: 30px; height: 30px; border-radius: 50%; display: inline-grid; place-items: center; padding: 0; margin-left: 6px; vertical-align: middle; cursor: pointer; }
+.eye .i { width: 17px; height: 17px; }
+.eye .e-hide { display: none; }
+html.masked .eye .e-show { display: none; }
+html.masked .eye .e-hide { display: grid; }
+.eye .e-show { display: grid; }
+.eye:active { transform: scale(.9); }
 
 /* Gesto de regresar (deslizar desde el borde izquierdo) */
 .back-hint {
@@ -590,3 +616,5 @@ button { cursor: pointer; }
 .plan small { font-size: 12px; color: var(--muted); }
 .plan .num { font-size: 13px; color: var(--text-2); white-space: nowrap; }
 .plan-add { justify-self: start; }
+.c-title:has(.eye) { display: inline-flex; align-items: center; white-space: nowrap; }
+.big .priv .pm { font-size: .8em; letter-spacing: .02em; }
