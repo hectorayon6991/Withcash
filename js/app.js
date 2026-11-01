@@ -187,8 +187,9 @@
     if (flushing || !sb || !S.user) return;
     flushing = true;
     try {
-      let q = ls.get(outboxKey(), []);
-      while (q.length) {
+      // Se relee la cola en cada vuelta: mientras se envía una operación pueden llegar otras
+      // (p. ej. seedDefaults hace tres seguidas) y no deben perderse al guardar la cola.
+      for (let q = ls.get(outboxKey(), []); q.length; q = ls.get(outboxKey(), [])) {
         const op = q[0];
         let res;
         try {
@@ -201,8 +202,7 @@
           console.error(res.error);
           toast("No se pudo guardar: " + res.error.message);
         }
-        q.shift();
-        ls.set(outboxKey(), q);
+        ls.set(outboxKey(), ls.get(outboxKey(), []).slice(1));
       }
     } finally {
       flushing = false;
@@ -240,14 +240,14 @@
     applyLocal({ table: "movements", op: "upsert", row: [] }); // ordena
     // Si hay cambios sin enviar, re-aplícalos encima de lo descargado
     for (const op of ls.get(outboxKey(), [])) applyLocal(op);
-    if (!st.data && !accounts.length && !categories.length) await seedDefaults();
+    if (!S.accounts.length && !S.categories.length) await seedDefaults(!st.data);
     saveCache();
   }
-  async function seedDefaults() {
+  async function seedDefaults(withSettings = true) {
     const uid = S.user.id;
     const cats = DEFAULT_CATS.map(([icon, name, kind], i) => ({ id: uuid(), user_id: uid, icon, name, kind, sort: i, archived: false }));
     const accs = DEFAULT_ACCS.map(([icon, name], i) => ({ id: uuid(), user_id: uid, icon, name, sort: i, initial_balance: 0, archived: false }));
-    mutate({ table: "settings", op: "upsert", row: { user_id: uid, currency: "MXN", timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "America/Mexico_City" } });
+    if (withSettings) mutate({ table: "settings", op: "upsert", row: { user_id: uid, currency: "MXN", timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "America/Mexico_City" } });
     mutate({ table: "categories", op: "upsert", row: cats });
     mutate({ table: "accounts", op: "upsert", row: accs });
   }
