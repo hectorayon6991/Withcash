@@ -1,8 +1,8 @@
 // WithCash service worker: la app funciona sin conexión (los datos se sincronizan con Supabase).
-const VERSION = "wc-v2.8.1";
+const VERSION = "wc-v2.9.0";
 const SHELL = [
   "./", "index.html", "css/styles.css", "js/app.js", "js/config.js", "js/vendor/supabase.js",
-  "js/icons.js", "js/finance.js", "js/store.js", "manifest.webmanifest", "icons/logo.png", "icons/favicon-64.png", "icons/icon-192.png", "icons/apple-touch-icon.png",
+  "js/icons.js", "js/finance.js", "js/store.js", "manifest.webmanifest", "icons/logo.png", "icons/logo-3d.png", "icons/favicon-64.png", "icons/icon-192.png", "icons/apple-touch-icon.png",
 ];
 
 self.addEventListener("install", (e) => {

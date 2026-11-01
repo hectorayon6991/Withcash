@@ -3155,8 +3155,14 @@
   }
 
   // Quita la pantalla de arranque con un desvanecido (una sola vez)
-  function hideSplash() { const sp = $("#splash"); if (!sp || sp.classList.contains("out")) return; sp.classList.add("out"); setTimeout(() => sp.remove(), 450); }
-  setTimeout(hideSplash, 4000);                                   // por si algo tarda: nunca se queda atorada
+  // Se muestra al menos 1.5 s desde que se abre la app (como una app nativa)
+  let splashGone = false;
+  function hideSplash() {
+    if (splashGone) return; splashGone = true;
+    const wait = Math.max(0, 1500 - performance.now());
+    setTimeout(() => { const sp = $("#splash"); if (!sp) return; sp.classList.add("out"); setTimeout(() => sp.remove(), 500); }, wait);
+  }
+  setTimeout(hideSplash, 5000);                                   // por si algo tarda: nunca se queda atorada
   async function init() {
     if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
     if (navigator.storage?.persist) navigator.storage.persist().catch(() => {});
