@@ -578,3 +578,15 @@ button { cursor: pointer; }
 .stmt span { font-size: 11px; color: var(--text-2); }
 .stmt b { font-size: 15px; }
 .stmt small { font-size: 11px; color: var(--muted); }
+/* Compras y deudas a meses */
+.msi-chips { display: flex; gap: 6px; overflow-x: auto; padding: 2px 0 4px; scrollbar-width: none; touch-action: pan-x pan-y; }
+.msi-chips::-webkit-scrollbar { display: none; }
+.msi-chips .chip { flex: none; }
+#msiHint { margin: 6px 0 0; font-size: 13px; }
+.plans { display: grid; gap: 6px; margin-top: 10px; }
+.plan { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); border-radius: 14px; padding: 9px 12px; text-align: left; }
+.plan span:first-child { display: grid; line-height: 1.25; min-width: 0; }
+.plan b { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.plan small { font-size: 12px; color: var(--muted); }
+.plan .num { font-size: 13px; color: var(--text-2); white-space: nowrap; }
+.plan-add { justify-self: start; }

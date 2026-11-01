@@ -5,7 +5,7 @@ Publicada con GitHub Pages (workflow `.github/workflows/pages.yml`, se despliega
 https://hectorayon6991.github.io/Withcash/
 
 ## Supabase (proyecto `withcash`, ref `snccrdjtoxuwefncwhyv`) — ya conectado
-- Migraciones 0001–0005 aplicadas (la 0005 la aplicó el propietario desde el SQL Editor). Edge Function `atajo` desplegada con **verify_jwt = false**
+- Migraciones 0001–0005 aplicadas (la 0005 la aplicó el propietario desde el SQL Editor). La 0006 (`card_plans`, compras a meses) se aplica igual; sin ella `S.dbv = 5` y la app oculta lo de meses. Edge Function `atajo` desplegada con **verify_jwt = false**
   (se autentica con la llave personal `?k=`, cuyo hash SHA-256 está en `api_keys`).
 - `js/config.js` ya tiene la URL y la clave publicable. Site URL configurada a la URL de GitHub Pages.
 - Subir la versión de caché en `sw.js` (`VERSION`) cada vez que cambien los archivos de la app.
@@ -38,6 +38,10 @@ https://hectorayon6991.github.io/Withcash/
   posteriores = lo que se paga; lo demás pasa al siguiente corte). Al registrar un gasto, «¿Con qué pagaste?» (`#payChips`) lista
   cuentas y tarjetas; elegir una tarjeta registra el gasto en ella. «Comprometido» suma pagos fijos + deuda previa de tarjetas
   (las compras ya están en Gastos); el «Disponible real» resta toda la deuda de tarjetas.
+- Compras/deudas a meses (`card_plans`, migración 0006): plan dentro de una tarjeta con `total`, `installments`, `first_month`
+  (mes del corte que cobra la 1.ª mensualidad) y `movement_id` opcional (compra que lo originó, se guarda en el mismo lote).
+  Mensualidades exactas en centavos (`WCFin.planInstallmentsC`: 1160/3 = 386.67, 386.67, 386.66). La deuda completa cuenta en
+  «Debo»/disponible; `statementC` solo cobra las mensualidades ya facturadas y `later` = lo que queda para cortes posteriores.
 - Fijos con `auto = true` se registran solos (`autoPostRecurring`); el índice único `(fixed_id, fixed_for)` evita duplicados.
 - Multi-moneda: `movements.amount` siempre en la moneda principal; si se capturó en dólares guarda `currency = 'USD'`
   y `orig_amount`. Tipo de cambio en `settings.usd_rate`.

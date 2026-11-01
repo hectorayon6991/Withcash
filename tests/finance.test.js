@@ -151,3 +151,26 @@ test("estado de cuenta: lo del corte vs lo que pasa al siguiente", () => {
   assert.equal(st.nextCut, "2026-12-10"); assert.equal(st.nextPayBy, "2026-12-30");
   assert.equal(F.statementC({ id: "x", initial_balance: 0 }, mv, [], [], "2026-11-20"), null);   // sin día de corte
 });
+
+test("compras a meses: mensualidades exactas y cobro por corte", () => {
+  const plan = { id: "p", account_id: "ml", total: 1160, installments: 3, first_month: "2026-11", status: "activo" };
+  assert.deepEqual(F.planInstallmentsC(plan), [38667, 38667, 38666]);                 // suma exacta 1160.00
+  assert.equal(F.planInstallmentsC(plan).reduce((a, b) => a + b, 0), 116000);
+  assert.equal(F.planBilledCount(plan, "2026-10-10"), 0);
+  assert.equal(F.planBilledCount(plan, "2026-11-10"), 1);
+  assert.equal(F.planBilledCount(plan, "2027-03-10"), 3);
+  assert.equal(F.planUnbilledC(plan, "2026-11-10"), 77333);
+  // Tarjeta con 1160 de deuda previa a 3 meses + una compra normal de 200 antes del corte
+  const card = { id: "ml", initial_balance: -1160, cut_day: 10, due_day: 30 };
+  const mv = [M("gasto", 200, "2026-11-05", { account_id: "ml" })];
+  const st = F.statementC(card, mv, [], [], "2026-11-20", [plan]);
+  assert.equal(st.total, 136000);              // la deuda completa sigue contando
+  assert.equal(st.statement, 58667);           // 386.67 de la mensualidad + 200 de la compra normal
+  assert.equal(st.next, 38667);                // el siguiente corte solo cobra la 2.ª mensualidad
+  assert.equal(st.later, 38666);               // la 3.ª queda para cortes posteriores
+  // Al mes siguiente, después de pagar el corte de noviembre, se cobra la 2.ª mensualidad
+  mv.push(M("transferencia", 586.67, "2026-11-25", { account_id: "deb", to_account_id: "ml" }));
+  const st2 = F.statementC(card, mv, [], [], "2026-12-15", [plan]);
+  assert.equal(st2.statement, 38667);
+  assert.equal(st2.total, 77333);
+});

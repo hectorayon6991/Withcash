@@ -67,7 +67,7 @@
     user: null,
     settings: { currency: "MXN", budget: null, savings_goal: null, timezone: "America/Mexico_City" },
     accounts: [], categories: [], fixed: [], movements: [],
-    overrides: [], goals: [], contribs: [], debts: [], debtPays: [], dbv: 4,
+    overrides: [], goals: [], contribs: [], debts: [], debtPays: [], plans: [], dbv: 4,
     tab: "inicio", ym: null, movFilter: "todos", period: "mes",
   };
 
@@ -250,7 +250,7 @@
   const cacheKey = () => `wc_cache_${S.user?.id}`;
   const outboxKey = () => `wc_outbox_${S.user?.id}`;
   const TABLE_STATE = { accounts: "accounts", categories: "categories", fixed_payments: "fixed", movements: "movements",
-    fixed_overrides: "overrides", savings_goals: "goals", savings_contributions: "contribs", debts: "debts", debt_payments: "debtPays" };
+    fixed_overrides: "overrides", savings_goals: "goals", savings_contributions: "contribs", debts: "debts", debt_payments: "debtPays", card_plans: "plans" };
   const NEW_TABLES = ["fixed_overrides", "savings_goals", "savings_contributions", "debts", "debt_payments"];
   // Columnas que solo existen con la base actualizada (versión 5)
   const NEW_COLS = {
@@ -261,13 +261,16 @@
     settings: ["app_name", "theme", "date_format", "time_format", "auto_lock_minutes", "notify", "currencies"],
   };
   const dbReady = () => S.dbv >= 5;
+  const plansReady = () => S.dbv >= 6;
+  // ¿La base ya tiene la tabla? (0005 → módulos; 0006 → compras a meses)
+  const tableReady = (t) => (t === "card_plans" ? plansReady() : NEW_TABLES.includes(t) ? dbReady() : true);
   let OUTBOX = [];
   let cacheTimer = 0;
   function saveCache() {
     clearTimeout(cacheTimer);
     cacheTimer = setTimeout(() => WCStore.set(cacheKey(), {
       settings: S.settings, accounts: S.accounts, categories: S.categories, fixed: S.fixed, movements: S.movements,
-      overrides: S.overrides, goals: S.goals, contribs: S.contribs, debts: S.debts, debtPays: S.debtPays, dbv: S.dbv,
+      overrides: S.overrides, goals: S.goals, contribs: S.contribs, debts: S.debts, debtPays: S.debtPays, plans: S.plans, dbv: S.dbv,
     }), 150);
   }
   async function loadCache() {
@@ -279,7 +282,7 @@
     OUTBOX = q;
     if (!c) return false;
     Object.assign(S, { settings: { ...S.settings, ...c.settings }, accounts: c.accounts || [], categories: c.categories || [], fixed: c.fixed || [], movements: c.movements || [],
-      overrides: c.overrides || [], goals: c.goals || [], contribs: c.contribs || [], debts: c.debts || [], debtPays: c.debtPays || [], dbv: c.dbv || 4 });
+      overrides: c.overrides || [], goals: c.goals || [], contribs: c.contribs || [], debts: c.debts || [], debtPays: c.debtPays || [], plans: c.plans || [], dbv: c.dbv || 4 });
     return true;
   }
   const persistOutbox = () => WCStore.set(outboxKey(), OUTBOX);
@@ -327,7 +330,7 @@
       for (const e of OUTBOX.slice()) {
         if (e.status === "error" && !retryErrors) continue;
         // Operaciones de módulos nuevos esperan a que la base esté actualizada (no se pierden)
-        if (!dbReady() && e.ops.some((o) => NEW_TABLES.includes(o.table))) { e.status = "waiting"; continue; }
+        if (e.ops.some((o) => !tableReady(o.table))) { e.status = "waiting"; continue; }
         let res;
         try {
           res = dbReady()
@@ -383,7 +386,8 @@
     // ¿La base ya tiene los módulos nuevos?
     const probe = await sb.from("savings_goals").select("id").limit(1);
     S.dbv = probe.error ? 4 : 5;
-    const extra = dbReady() ? NEW_TABLES : [];
+    if (S.dbv >= 5) { const p6 = await sb.from("card_plans").select("id").limit(1); if (!p6.error) S.dbv = 6; }
+    const extra = (dbReady() ? NEW_TABLES : []).concat(plansReady() ? ["card_plans"] : []);
     const [st, accounts, categories, fixed, movements, ...rest] = await Promise.all([
       sb.from("settings").select("*").maybeSingle(),
       fetchAll("accounts", "created_at"), fetchAll("categories", "created_at"),
@@ -401,7 +405,7 @@
     saveCache();
     applyTheme();
     autoPostRecurring();
-    if (OUTBOX.some((e) => e.status === "waiting") && dbReady()) { OUTBOX.forEach((e) => e.status === "waiting" && (e.status = "pending")); flush(); }
+    if (OUTBOX.some((e) => e.status === "waiting" && e.ops.every((o) => tableReady(o.table)))) { OUTBOX.forEach((e) => e.status === "waiting" && e.ops.every((o) => tableReady(o.table)) && (e.status = "pending")); flush(); }
   }
   // Fijos con «Registrar automáticamente»: anota las fechas que ya llegaron y no están registradas.
   // La base de datos tiene un índice único (fixed_id, fixed_for), así que nunca se duplican.
@@ -577,8 +581,15 @@
       debt += Math.max(0, -WCFin.accountBalanceC(a, S.movements, S.debts || [], S.debtPays || []));
       pre += Math.max(0, -C(a.initial_balance));
     }
-    pre = Math.min(pre, debt);
-    return { fixed: P(fixed), cardsDebt: P(debt), cardsPre: P(pre), bills: P(fixed + pre), incomes: P(incomes) };
+    // Lo que sigue a meses después del corte de este mes no se paga este mes
+    let future = 0;
+    for (const a of cards) {
+      const cutDate = a.cut_day ? dueDate(ym, a.cut_day) : dueDate(ym, 31);
+      future += WCFin.activePlans(S.plans, a.id).reduce((s2, p) => s2 + WCFin.planUnbilledC(p, cutDate), 0);
+    }
+    future = Math.min(future, debt);
+    pre = Math.min(Math.max(0, pre - future), debt - future);
+    return { fixed: P(fixed), cardsDebt: P(debt - future), cardsFuture: P(future), cardsPre: P(pre), bills: P(fixed + pre), incomes: P(incomes) };
   }
   const subsTotals = () => { const subs = S.fixed.filter((f) => f.active && f.kind === "suscripcion"); const mc = subs.reduce((s, f) => s + WCFin.perMonthC(f), 0); return { subs, month: P(mc), year: P(mc * 12) }; };
 
@@ -1112,6 +1123,8 @@
       amount: opts.amount || "", note: opts.note || "", date: today(),
     };
     entry.currency = m?.currency === "USD" ? "USD" : "base";
+    const plan0 = m && (S.plans || []).find((p) => p.movement_id === m.id);
+    entry.plan = plan0 || null; entry.msi = plan0 ? plan0.installments : 1;
     $("#entryAmount").value = entry.currency === "USD" && m?.orig_amount ? String(Number(m.orig_amount)) : entry.amount ? String(Number(entry.amount)) : "";
     syncCurrency();
     $("#entryNote").value = entry.note || "";
@@ -1208,7 +1221,24 @@
     paintCutHint();
   }
   // Aviso de corte: a qué estado de cuenta entra la compra y cuándo se paga; y si supera el disponible
+  // «¿A meses?»: solo para gastos con tarjeta de crédito. Crea un plan ligado a la compra en el mismo lote.
+  const MSI = [1, 3, 6, 9, 12, 18, 24];
+  function paintMsi() {
+    const a = acc($("#entryAccount").value), box = $("#msiPick");
+    const show = !!a && isCredit(a) && entry.type === "gasto" && (plansReady() || entry.msi > 1);
+    box.hidden = !show; if (!show) return;
+    const opts = MSI.includes(entry.msi) ? MSI : [...MSI, entry.msi].sort((x, y) => x - y);
+    $("#msiChips").innerHTML = opts.map((n) => `<button type="button" class="chip ${n === entry.msi ? "active" : ""}" data-msi="${n}">${n === 1 ? "De contado" : n + " meses"}</button>`).join("");
+    const amt = parseAmount($("#entryAmount").value) * (entry.currency === "USD" ? (usdRate() || 1) : 1), hint = $("#msiHint");
+    if (entry.msi > 1 && amt > 0) {
+      const inst = WCFin.planInstallmentsC({ total: amt, installments: entry.msi });
+      hint.innerHTML = `<b>${entry.msi} pagos de ${money(P(inst[0]))}</b>${inst[0] !== inst[inst.length - 1] ? ` (el último de ${money(P(inst[inst.length - 1]))})` : ""}. La deuda total sube ${money(amt)}, pero en cada corte solo pagas la mensualidad.`;
+      hint.hidden = false;
+    } else hint.hidden = true;
+  }
+  $("#msiChips").addEventListener("click", (e) => { const b = e.target.closest("[data-msi]"); if (!b) return; entry.msi = +b.dataset.msi; paintMsi(); });
   function paintCutHint() {
+    paintMsi();
     const a = acc($("#entryAccount").value), h = $("#cardCutHint");
     if (!a || !isCredit(a) || entry.type !== "gasto") { h.hidden = true; return; }
     const d = $("#entryDate").value || today(), ci = creditInfo(a);
@@ -1279,19 +1309,31 @@
     }
     if (account_id) ls.set("wc_last_acc", account_id);
     const isNew = !entry.id;
+    // Compra a meses: el plan viaja en el mismo lote que el movimiento
+    const ops = [{ table: "movements", op: "upsert", row }];
+    const wantPlan = type === "gasto" && src && isCredit(src) && entry.msi > 1;
+    if (wantPlan && !plansReady()) { toast("Para compras a meses aplica la actualización 0006 de la base de datos"); return; }
+    let planRow = null;
+    if (wantPlan) {
+      planRow = { id: entry.plan?.id || uuid(), user_id: S.user.id, account_id: src.id, movement_id: row.id, name: (row.note || cat(category_id)?.name || "Compra a meses").slice(0, 60),
+        total: amount, installments: entry.msi, first_month: entry.plan && entry.plan.account_id === src.id && entry.plan.installments === entry.msi && entry.plan.first_month ? entry.plan.first_month : nextBillMonth(src, row.date),
+        status: "activo", created_at: entry.plan?.created_at || new Date().toISOString() };
+      ops.push({ table: "card_plans", op: "upsert", row: planRow });
+    } else if (entry.plan) ops.push({ table: "card_plans", op: "delete", id: entry.plan.id });
+    mutate(ops);
     if (entry.ticketFile) uploadTicket(row, entry.ticketFile);
-    mutate({ table: "movements", op: "upsert", row });
     closeSheet($("#entrySheet"));
-    if (isNew) toast(`${type === "ingreso" ? "Ingreso" : type === "transferencia" ? "Transferencia" : "Gasto"} de ${money(amount)} guardado`, {
-      label: "Deshacer", fn: () => mutate({ table: "movements", op: "delete", id: row.id }),
+    const what = `${type === "ingreso" ? "Ingreso" : type === "transferencia" ? "Transferencia" : "Gasto"} de ${money(amount)}${planRow ? ` a ${planRow.installments} meses (${money(P(WCFin.planInstallmentsC(planRow)[0]))}/mes)` : ""} guardado`;
+    if (isNew) toast(what, {
+      label: "Deshacer", fn: () => mutate([...(planRow ? [{ table: "card_plans", op: "delete", id: planRow.id }] : []), { table: "movements", op: "delete", id: row.id }]),
     });
   });
   $("#entryDelete").addEventListener("click", () => {
     if (!entry?.id || !confirm("¿Eliminar este movimiento?")) return;
-    const old = S.movements.find((m) => m.id === entry.id);
-    mutate({ table: "movements", op: "delete", id: entry.id });
+    const old = S.movements.find((m) => m.id === entry.id), oldPlan = (S.plans || []).find((p) => p.movement_id === entry.id);
+    mutate([...(oldPlan ? [{ table: "card_plans", op: "delete", id: oldPlan.id }] : []), { table: "movements", op: "delete", id: entry.id }]);
     closeSheet($("#entrySheet"));
-    toast("Movimiento eliminado", { label: "Deshacer", fn: () => mutate({ table: "movements", op: "upsert", row: old }) });
+    toast("Movimiento eliminado", { label: "Deshacer", fn: () => mutate([{ table: "movements", op: "upsert", row: old }, ...(oldPlan ? [{ table: "card_plans", op: "upsert", row: oldPlan }] : [])]) });
   });
 
   // ---------- Hoja: pago fijo ----------
@@ -2043,7 +2085,7 @@
       <div><span>Crédito</span><b class="num">${lim ? m0(lim) : "—"}</b></div>
       <div><span>Debo</span><b class="num ${debt > 0 ? "neg" : ""}">${m0(debt)}</b></div>
       <div><span>Disponible</span><b class="num ${avail == null ? "" : avail < 0 ? "neg" : "pos"}">${avail == null ? "—" : m0(avail)}</b></div></div>`;
-  const cardStatement = (a) => { const st = WCFin.statementC(a, S.movements, S.debts || [], S.debtPays || [], today()); return st && { ...st, statement: P(st.statement), next: P(st.next), total: P(st.total) }; };
+  const cardStatement = (a) => { const st = WCFin.statementC(a, S.movements, S.debts || [], S.debtPays || [], today(), S.plans || []); return st && { ...st, statement: P(st.statement), next: P(st.next), total: P(st.total) }; };
   function cardBlock(c) {
     const pct = c.limit ? Math.min(1, c.used / c.limit) : 0, col = c.a.color || colorFor(c.a.id), st = cardStatement(c.a);
     return `<div class="cc tap" data-credit="${c.a.id}">
@@ -2054,12 +2096,66 @@
           : c.due ? `<span class="badge ${c.used > 0 && c.dueDays <= 1 ? "bad" : c.used > 0 && c.dueDays <= 5 ? "warn" : ""}">Pagar antes del ${fmtShort(c.due)}</span>` : `<span class="badge">Sin fecha de pago</span>`}</div>
       ${triple(c.limit, c.used, c.limit ? c.avail : null)}
       ${c.limit ? `<div class="bar-soft ${pct >= 0.8 ? "over" : ""}" style="--t:${col};margin-top:10px"><i style="width:${(pct * 100).toFixed(1)}%"></i></div>` : `<p class="hint" style="margin:8px 0 0">Toca para agregar el crédito de esta tarjeta</p>`}
+      ${planList(c.a)}
       ${st ? `<div class="stmt">
           <div><span>Corte del ${fmtShort(st.lastCut)}</span><b class="num ${st.statement ? "neg" : ""}">${st.statement ? money(st.statement) : "Pagado"}</b><small>${st.statement && st.payBy ? `pagar antes del ${fmtShort(st.payBy)}` : "sin saldo al corte"}</small></div>
-          <div><span>Siguiente corte (${fmtShort(st.nextCut)})</span><b class="num">${money(st.next)}</b><small>${st.nextPayBy ? `se paga el ${fmtShort(st.nextPayBy)}` : "compras después del corte"}</small></div>
+          <div><span>Siguiente corte (${fmtShort(st.nextCut)})</span><b class="num">${money(st.next)}</b><small>${st.nextPayBy ? `se paga el ${fmtShort(st.nextPayBy)}` : "compras después del corte"}${st.later ? ` · ${money(P(st.later))} en meses siguientes` : ""}</small></div>
         </div>` : `<p class="hint warn-t" style="margin:8px 0 0">${ico("alert", "i-sm")} Falta el día de corte: tócala para agregarlo</p>`}
     </div>`;
   }
+  // ---------- Compras y deudas a meses ----------
+  // Mes del corte en que se cobraría hoy una mensualidad nueva (el próximo corte)
+  const nextBillMonth = (a, d = today()) => ymOf(a.cut_day ? WCFin.cutFor(a.cut_day, d) : d);
+  function planInfo(p) {
+    const inst = WCFin.planInstallmentsC(p), a = acc(p.account_id);
+    const cutRef = a?.cut_day ? WCFin.lastCutOn(a.cut_day, today()) : today();
+    const billed = WCFin.planBilledCount(p, cutRef), left = inst.slice(billed).reduce((s2, v) => s2 + v, 0);
+    return { inst, billed, left: P(left), monthly: P(inst[Math.min(billed, inst.length - 1)]), current: Math.min(p.installments, billed + 1), done: billed >= p.installments };
+  }
+  function planList(a) {
+    if (!plansReady()) return "";
+    const plans = WCFin.activePlans(S.plans, a.id);
+    return `<div class="plans">${plans.map((p) => { const i = planInfo(p);
+      return `<button type="button" class="plan" data-plan="${p.id}"><span><b>${esc(p.name)}</b><small>${i.done ? "Pagado por completo" : `Pago ${i.current} de ${p.installments} · ${money(i.monthly)}/mes`}</small></span><span class="num">${i.done ? "" : `Faltan ${money(i.left)}`}</span></button>`; }).join("")}
+      <button type="button" class="btn sm ghost plan-add" data-plan-new="${a.id}">${ico("plus")} Deuda o compra a meses</button></div>`;
+  }
+  function planForm(accountId, id) {
+    if (!plansReady()) { toast("Para usar compras a meses aplica la actualización 0006 de la base de datos"); return; }
+    const p = (S.plans || []).find((x) => x.id === id), a = acc(p?.account_id || accountId); if (!a) return;
+    const nb = nextBillMonth(a), info = p ? planInfo(p) : null;
+    const monthOpts = [-1, 0, 1, 2].map((k) => addMonths(nb, k)).map((m) => `<option value="${m}">${monthName(m)} ${m.slice(0, 4)}</option>`).join("");
+    openDyn(`<h2>${p ? "Editar plan a meses" : "Deuda o compra a meses"}</h2><p class="hint">Tarjeta <b>${esc(a.name)}</b>. Lo que debes sigue contando completo; en cada corte solo se cobra la mensualidad.</p>
+      ${field("Descripción", `<input id="plName" maxlength="60" value="${esc(p?.name || "")}" placeholder="Ej. Compra Mercado Libre">`)}
+      <div class="row2">${field("Total", `<input id="plTotal" inputmode="decimal" value="${p ? Number(p.total) : ""}" placeholder="0">`)}${field("Número de pagos", `<input id="plN" type="number" inputmode="numeric" min="1" max="72" value="${p?.installments || 3}">`, "narrow")}</div>
+      <div class="row2">${field("Pagos ya hechos", `<input id="plPaid" type="number" inputmode="numeric" min="0" value="${p ? Math.max(0, WCFin.planBilledCount(p, a.cut_day ? WCFin.lastCutOn(a.cut_day, today()) : addMonths(today(), -1) + "-28")) : 0}">`)}${field("El siguiente pago se cobra en", `<select id="plNext">${monthOpts}</select>`)}</div>
+      <div class="credit-live" id="plLive"></div><p class="hint warn-t" id="plWarn" hidden></p>
+      <div class="sheet-actions">${p ? `<button type="button" class="btn ghost danger" data-a="del">Eliminar</button>` : ""}<button type="button" class="btn ghost" data-close>Cancelar</button><button type="button" class="btn primary" data-a="save">Guardar</button></div>`, (root) => {
+      const nextSel = root.querySelector("#plNext");
+      if (p) { const want = addMonths(p.first_month, Math.max(0, parseInt(root.querySelector("#plPaid").value, 10) || 0)); if ([...nextSel.options].some((o) => o.value === want)) nextSel.value = want; }
+      else nextSel.value = nb;
+      const paint = () => {
+        const t = parseAmount(val(root, "#plTotal")) || 0, n = parseInt(val(root, "#plN"), 10) || 0, done = parseInt(val(root, "#plPaid"), 10) || 0;
+        if (!(t > 0) || !(n >= 1)) { root.querySelector("#plLive").innerHTML = ""; return; }
+        const inst = WCFin.planInstallmentsC({ total: t, installments: n }), left = inst.slice(Math.min(done, n)).reduce((s2, v) => s2 + v, 0);
+        root.querySelector("#plLive").innerHTML = `<span>${n} pagos de</span><b class="num">${money(P(inst[0]))}</b><small>${done ? `faltan ${money(P(left))}` : inst[0] !== inst[n - 1] ? `último ${money(P(inst[n - 1]))}` : ""}</small>`;
+        const debtC = C(creditInfo(a).used), w = root.querySelector("#plWarn");
+        w.hidden = !(left > debtC && !p?.movement_id);
+        if (!w.hidden) w.innerHTML = `${ico("alert", "i-sm")} Lo que falta (${money(P(left))}) es más de lo que debes en ${esc(a.name)} (${money(P(debtC))}). Si es una deuda que ya tenías, súmala en «¿Cuánto debes hoy?» de la tarjeta.`;
+      };
+      root.addEventListener("input", paint); paint();
+      root.addEventListener("click", (e) => {
+        const x = e.target.closest("[data-a]"); if (!x) return;
+        if (x.dataset.a === "del") { if (!confirm(`¿Eliminar el plan "${p.name}"? La deuda de la tarjeta no cambia.`)) return; mutate({ table: "card_plans", op: "delete", id: p.id }); closeDyn(); return; }
+        const name = val(root, "#plName") || "Compra a meses", total = parseAmount(val(root, "#plTotal")), n = parseInt(val(root, "#plN"), 10), done = parseInt(val(root, "#plPaid"), 10) || 0;
+        if (!(total > 0) || !(n >= 1 && n <= 72) || done < 0 || done >= n) { toast("Revisa el total, el número de pagos y los pagos hechos"); return; }
+        const first_month = addMonths(nextSel.value, -done);
+        mutate({ table: "card_plans", op: "upsert", row: { id: p?.id || uuid(), user_id: S.user.id, account_id: a.id, movement_id: p?.movement_id || null, name: name.slice(0, 60),
+          total: round2(total), installments: n, first_month, status: "activo", created_at: p?.created_at || new Date().toISOString() } });
+        closeDyn(); toast(p ? "Plan actualizado" : `${n} pagos de ${money(P(WCFin.planInstallmentsC({ total, installments: n })[0]))}`);
+      });
+    });
+  }
+
   // Pagos de tarjeta registrados como «Pagos» que todavía no son una tarjeta (por nombre)
   const pendingCardPayments = () => {
     const names = new Set(activeAccs().filter(isCredit).map((a) => a.name.trim().toLowerCase()));
@@ -2596,7 +2692,7 @@
   document.addEventListener("touchmove", (e) => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
   // (el doble toque ya no hace zoom gracias a touch-action en el CSS)
   $("#view").addEventListener("click", (e) => {
-    const t = e.target.closest("[data-mov],[data-mov-open],[data-pay],[data-goto],[data-new-fixed],[data-edit-fixed],[data-filter],[data-catgo],[data-credit],[data-export],[data-acc-detail],[data-new-acc],[data-pay-actions],[data-new-budget],[data-new-goal],[data-goal],[data-new-debt],[data-debt],[data-new-sub],[data-period],[data-movacc],[data-clear-acc],[data-new-card],[data-cards-from-pays]");
+    const t = e.target.closest("[data-mov],[data-mov-open],[data-pay],[data-goto],[data-new-fixed],[data-edit-fixed],[data-filter],[data-catgo],[data-credit],[data-export],[data-acc-detail],[data-new-acc],[data-pay-actions],[data-new-budget],[data-new-goal],[data-goal],[data-new-debt],[data-debt],[data-new-sub],[data-period],[data-movacc],[data-clear-acc],[data-new-card],[data-cards-from-pays],[data-plan],[data-plan-new]");
     if (!t) return;
     if (t.dataset.pay) payFixed(t.dataset.pay, t.dataset.month);
     else if (t.dataset.movOpen) openEntry({ id: t.dataset.movOpen });
@@ -2606,6 +2702,8 @@
     else if (t.dataset.accDetail) accountDetail(t.dataset.accDetail);
     else if (t.hasAttribute("data-new-acc")) openItem("accounts", null);
     else if (t.hasAttribute("data-new-card")) openItem("accounts", null, null, "credito");
+    else if (t.dataset.plan) planForm(null, t.dataset.plan);
+    else if (t.dataset.planNew) planForm(t.dataset.planNew);
     else if (t.hasAttribute("data-cards-from-pays")) cardsFromPayments();
     else if (t.dataset.payActions) paymentActions(t.dataset.payActions);
     else if (t.hasAttribute("data-new-budget")) openFixed(null, { kind: "presupuesto", frequency: "mensual" });

@@ -161,16 +161,32 @@
   const lastCutOn = (cutDay, d) => { const c = dueDate(ymOf(d), cutDay); return c <= d ? c : dueDate(addMonths(ymOf(d), -1), cutDay); };
   // Fecha límite de pago de un corte: el primer «día de pago» posterior al corte
   const payByFor = (cutDate, dueDay) => { const c = dueDate(ymOf(cutDate), dueDay); return c > cutDate ? c : dueDate(addMonths(ymOf(cutDate), 1), dueDay); };
+  // ---------- Compras / deudas a meses ----------
+  // Mensualidades en centavos: el residuo se reparte en las primeras para que la suma sea exacta (1160/3 → 386.67, 386.67, 386.66)
+  function planInstallmentsC(plan) {
+    const t = toC(plan.total), n = Math.max(1, plan.installments | 0), base = Math.floor(t / n), r = t - base * n;
+    return Array.from({ length: n }, (_, i) => base + (i < r ? 1 : 0));
+  }
+  // Mensualidades ya cobradas en cortes hasta la fecha de corte dada (incluido)
+  const planBilledCount = (plan, cutDate) => Math.max(0, Math.min(plan.installments, monthsBetween(plan.first_month, ymOf(cutDate)) + 1));
+  const planUnbilledC = (plan, cutDate) => planInstallmentsC(plan).slice(planBilledCount(plan, cutDate)).reduce((s, v) => s + v, 0);
+  const activePlans = (plans, accountId) => (plans || []).filter((p) => p.account_id === accountId && p.status === "activo");
+
   // Estado de cuenta: lo que quedó al último corte (menos lo ya pagado después) se paga en la próxima fecha límite;
   // las compras posteriores al corte pasan al siguiente estado de cuenta.
-  function statementC(a, movements, debts = [], debtPayments = [], today) {
+  function statementC(a, movements, debts = [], debtPayments = [], today, plans = []) {
     if (!a.cut_day) return null;
     const lastCut = lastCutOn(a.cut_day, today), nextCut = dueDate(addMonths(ymOf(lastCut), 1), a.cut_day);
     const atCut = Math.max(0, -accountBalanceC(a, movements.filter((m) => m.date <= lastCut), debts.filter((d) => d.start_date <= lastCut), debtPayments.filter((p) => p.date <= lastCut)));
     const paidAfter = movements.filter((m) => m.type === "transferencia" && m.to_account_id === a.id && m.date > lastCut).reduce((s, m) => s + toC(m.amount), 0);
     const total = Math.max(0, -accountBalanceC(a, movements, debts, debtPayments));
-    const statement = Math.max(0, Math.min(total, atCut - paidAfter));
-    return { lastCut, nextCut, payBy: a.due_day ? payByFor(lastCut, a.due_day) : null, nextPayBy: a.due_day ? payByFor(nextCut, a.due_day) : null, statement, next: Math.max(0, total - statement), total };
+    // Lo que sigue a meses sin cobrarse todavía no se paga en este corte (la deuda completa sí cuenta)
+    const unbilled = activePlans(plans, a.id).reduce((s, p) => s + planUnbilledC(p, lastCut), 0);
+    const statement = Math.max(0, Math.min(total, atCut - unbilled - paidAfter));
+    // Siguiente corte: lo demás menos las mensualidades que se cobran en cortes posteriores
+    const later = activePlans(plans, a.id).reduce((s, p) => s + planUnbilledC(p, nextCut), 0);
+    const next = Math.max(0, total - statement - later);
+    return { lastCut, nextCut, payBy: a.due_day ? payByFor(lastCut, a.due_day) : null, nextPayBy: a.due_day ? payByFor(nextCut, a.due_day) : null, statement, next, later: Math.max(0, total - statement - next), total };
   }
 
   // ---------- Dinero disponible ----------
@@ -183,7 +199,7 @@
   const api = { toC, fromC, sumC, mulC, pad, ymOf, addMonths, daysInMonth, dueDate, dow, addDays, daysBetween, monthsBetween,
     PER_MONTH, freqOf, perMonthC, baseOccurrences, occurrences, accountBalanceC, totalsC, byCategoryC,
     debtBalanceC, goalSavedC, goalPlan, budgetPeriod, budgetUse, budgetLevel, creditInfoC, availability,
-    cutFor, lastCutOn, payByFor, statementC };
+    cutFor, lastCutOn, payByFor, statementC, planInstallmentsC, planBilledCount, planUnbilledC, activePlans };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.WCFin = api;
 })(typeof self !== "undefined" ? self : this);

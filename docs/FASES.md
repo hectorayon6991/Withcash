@@ -24,6 +24,7 @@ Estado real del proyecto. Se actualiza en cada entrega.
 - **Cuentas**: tipos efectivo/bancaria/débito/ahorro/crédito/inversión/personalizada, institución, moneda, apertura, color, estado, permitir saldo negativo (se valida), historial; tarjetas con límite, disponible, utilizado, corte, fecha límite, tasa, compras, pagos e intereses.
 - **Pagos**: frecuencias única, semanal, quincenal, mensual, bimestral, trimestral, semestral y anual; estados pendiente/pagado/vencido/programado; marcar pagado (una sola vez por fecha), reprogramar, saltar, pausar, cancelar, historial, recordatorio y registro automático sin duplicados.
 - **Presupuestos**: semanal, quincenal, mensual, anual y por rango, por categoría; gastado, restante, porcentaje y barra; alertas al 50/75/90/100 % y excedido.
+- **Compras y deudas a meses** (migración 0006): al pagar un gasto con tarjeta se elige 3, 6, 9, 12, 18 o 24 meses; también se registran deudas a meses que ya existían (pagos hechos y mes del siguiente cobro). Cada corte cobra solo la mensualidad.
 - **Ahorros**: metas con objetivo, fecha, cuenta y descripción; aportaciones y retiros; porcentaje, restante, fecha estimada, aportación mensual/semanal necesaria; lo ahorrado se trata como reservado (no se duplica en el patrimonio).
 - **Deudas**: «debo» y «me deben», tipo, importe, saldo pendiente, fechas, interés, notas; abonos con capital e intereses (liquidación en el mismo lote atómico), historial.
 - **Suscripciones**: importe, frecuencia, cobro, cuenta, estado, mensual equivalente y anual; pausar y cancelar; sin cargos duplicados.
@@ -35,8 +36,8 @@ Estado real del proyecto. Se actualiza en cada entrega.
 
 ## Pruebas
 
-- `npm test`: 12 pruebas unitarias del motor financiero → **12/12**.
-- `npm run test:e2e`: 34 pruebas funcionales en Chromium con Supabase simulado (iPhone 13, Pixel 7 y escritorio; base actualizada y base anterior) → **34/34**. Cubren los casos 1–21 y 23–25 del documento.
+- `npm test`: 15 pruebas unitarias del motor financiero → **15/15**.
+- `npm run test:e2e`: 52 pruebas funcionales en Chromium con Supabase simulado (iPhone 13, Pixel 7 y escritorio; base actualizada y base anterior) → **52/52**. Cubren los casos 1–21 y 23–25 del documento.
 - Integración contra la base real (dentro de una transacción que se revierte): lote atómico de 2 filas, atomicidad ante una operación inválida, sin duplicados de pagos recurrentes, no ve ni borra datos de otro usuario (caso 22), dueño forzado en `wc_apply`, RLS en tablas nuevas, bitácora, anónimo sin acceso a `wc_apply`, registro cerrado a otros correos → **10/10**.
 - Pendiente: confirmación en dispositivos físicos (iPhone, Android, Windows, Mac) por parte del propietario.
 

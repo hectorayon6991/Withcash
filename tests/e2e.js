@@ -47,6 +47,7 @@ async function boot(browser, { dbv = 5, device = "iPhone 13", offline = false, d
     const t = u.pathname.split("/rest/v1/")[1];
     const isNew = ["fixed_overrides", "savings_goals", "savings_contributions", "debts", "debt_payments"].includes(t);
     if (t && m === "GET") {
+      if (t === "card_plans" && (dbv < 6 || !server.data.card_plans)) return r.fulfill({ status: 404, contentType: "application/json", body: '{"code":"PGRST205","message":"Could not find the table"}' });
       if (isNew && dbv < 5) return r.fulfill({ status: 404, contentType: "application/json", body: '{"code":"PGRST205","message":"Could not find the table"}' });
       const d = server.data[t]; const obj = (r.request().headers()["accept"] || "").includes("vnd.pgrst.object");
       return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(t === "settings" ? (obj ? d : [d]) : d) });
@@ -220,6 +221,46 @@ process.on("unhandledRejection", (e) => { check("la prueba terminó sin interrup
     check("tarjetas sin errores", !T.errs.length, T.errs.join(" | "));
     if (process.env.SHOTS) { await T.p.click("#openMore"); await T.p.waitForTimeout(150); await T.p.click('[data-mod="tarjetas"]'); await T.p.waitForTimeout(300); await T.p.screenshot({ path: process.env.SHOTS + "/tarjetas.png", fullPage: true }); }
     await T.ctx.close();
+  }
+
+  // ---------- Compras y deudas a meses (migración 0006) ----------
+  {
+    const d = fixtures(); d.card_plans = [];
+    const M = await boot(browser, { dbv: 6, data: d });
+    // Gasto con Nu a 3 meses: 1160 → 386.67 + 386.67 + 386.66; hoy 16 nov, corte 10 → 1.ª mensualidad en el corte de diciembre
+    await M.p.click("#fab"); await M.p.waitForTimeout(200);
+    await M.p.fill("#entryAmount", "1160"); await M.p.click('#catChips [data-cat="c8"]'); await M.p.click('#payChips [data-pay-acc="a3"]');
+    await M.p.fill("#entryNote", "Mercado Libre");
+    const msiVisible = await M.p.isVisible("#msiPick");
+    await M.p.click('#msiChips [data-msi="3"]'); await M.p.waitForTimeout(100);
+    const hint = await txt(M.p, "#msiHint");
+    await M.p.click("#entryForm button[type=submit]"); await M.p.waitForTimeout(400);
+    const mov = d.movements.find((m) => m.note === "Mercado Libre"), plan = d.card_plans[0];
+    check("a meses: el selector aparece al pagar con tarjeta", msiVisible && /3 pagos de \$386\.67/.test(hint), hint);
+    check("a meses: compra y plan se guardan juntos (mismo lote)", !!mov && !!plan && plan.movement_id === mov.id && plan.installments === 3 && Number(plan.total) === 1160 && plan.first_month === "2026-12"
+      && M.server.rpc.some((ops) => ops.some((o) => o.table === "movements") && ops.some((o) => o.table === "card_plans")), JSON.stringify(plan));
+    // Deuda que ya existía: 1160 a 3 pagos, ya pagué 1, el siguiente se cobra en diciembre
+    await M.p.click("#openMore"); await M.p.waitForTimeout(150); await M.p.click('[data-mod="tarjetas"]'); await M.p.waitForTimeout(300);
+    let block = await txt(M.p, '[data-credit="a3"]');
+    check("a meses: la tarjeta muestra el plan con su mensualidad", /Mercado Libre/.test(block) && /Pago 1 de 3/.test(block) && /\$386\.67\/mes/.test(block), block.slice(0, 260));
+    check("a meses: el siguiente corte cobra solo la mensualidad", /Siguiente corte[^$]*\$386\.67/.test(block), block.slice(0, 400));
+    await M.p.click('[data-plan-new="a3"]'); await M.p.waitForTimeout(250);
+    await M.p.fill("#plName", "Celular"); await M.p.fill("#plTotal", "6000"); await M.p.fill("#plN", "6"); await M.p.fill("#plPaid", "2");
+    const live = await txt(M.p, "#plLive");
+    await M.p.click('#dynBody [data-a="save"]'); await M.p.waitForTimeout(400);
+    const cel = d.card_plans.find((x) => x.name === "Celular");
+    check("a meses: registrar una deuda que ya tenía (pagos hechos)", cel && cel.installments === 6 && cel.first_month === "2026-10" && cel.movement_id === null && /6 pagos de \$1,000/.test(live) && /faltan \$4,000/.test(live), JSON.stringify(cel) + " " + live);
+    block = await txt(M.p, '[data-credit="a3"]');
+    check("a meses: plan de deuda previa muestra el pago actual", /Celular/.test(block) && /Pago 3 de 6/.test(block), block.slice(0, 300));
+    // Editar la compra a contado elimina el plan
+    await M.p.click('.tabbar [data-tab="movimientos"]'); await M.p.waitForTimeout(300);
+    await M.p.evaluate((id) => document.querySelector(`[data-mov="${id}"]`)?.click(), mov.id); await M.p.waitForTimeout(250);
+    const sel = await M.p.getAttribute('#msiChips [data-msi="3"]', "class");
+    await M.p.click('#msiChips [data-msi="1"]'); await M.p.click("#entryForm button[type=submit]"); await M.p.waitForTimeout(400);
+    check("a meses: al editar la compra se ve el plan y pasarla a contado lo quita", /active/.test(sel || "") && !d.card_plans.some((x) => x.movement_id === mov.id) && d.card_plans.length === 1, sel);
+    check("a meses sin errores", !M.errs.length, M.errs.join(" | "));
+    if (process.env.SHOTS) { await M.p.click("#openMore"); await M.p.waitForTimeout(150); await M.p.click('[data-mod="tarjetas"]'); await M.p.waitForTimeout(300); await M.p.screenshot({ path: process.env.SHOTS + "/meses.png", fullPage: true }); }
+    await M.ctx.close();
   }
 
   // ---------- 19-20. Dos dispositivos sobre los mismos datos ----------
