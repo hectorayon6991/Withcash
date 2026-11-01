@@ -32,7 +32,7 @@ async function sha256(s: string) {
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-// "🍔 Comida" -> "comida"; "Débito" -> "debito"
+// "Comida" -> "comida"; "Débito" -> "debito" (ignora símbolos y emojis antiguos)
 const norm = (s: unknown) =>
   String(s ?? "")
     .normalize("NFD")
@@ -206,7 +206,7 @@ Deno.serve(async (req) => {
   };
   const budgetText = (f: Fixed, spent: number) => {
     const p = budgetPeriod(f, today), left = Number(f.amount) - spent;
-    return left >= 0 ? `${f.name}: quedan ${money(left)} ${p.label}` : `⚠️ ${f.name}: te pasaste ${money(-left)} ${p.label}`;
+    return left >= 0 ? `${f.name}: quedan ${money(left)} ${p.label}` : `${f.name}: te pasaste ${money(-left)} ${p.label}`;
   };
   const spentIn = async (f: Fixed) => {
     const p = budgetPeriod(f, today);
@@ -219,9 +219,9 @@ Deno.serve(async (req) => {
   if (p.lista) {
     const l = norm(p.lista);
     let lines: string[] = [];
-    if (l.startsWith("cuenta")) lines = acc.map((a) => `${a.icon} ${a.name}`);
-    else if (l.startsWith("ingreso")) lines = cat.filter((c) => c.kind === "ingreso").map((c) => `${c.icon} ${c.name}`);
-    else if (l.startsWith("categor") || l.startsWith("gasto")) lines = cat.filter((c) => c.kind === "gasto").map((c) => `${c.icon} ${c.name}`);
+    if (l.startsWith("cuenta")) lines = acc.map((a) => a.name);
+    else if (l.startsWith("ingreso")) lines = cat.filter((c) => c.kind === "ingreso").map((c) => c.name);
+    else if (l.startsWith("categor") || l.startsWith("gasto")) lines = cat.filter((c) => c.kind === "gasto").map((c) => c.name);
     else if (l.startsWith("fijo")) {
       lines = fx.map((f) => ({ f, n: nextPending(f) }))
         .sort((a, b) => a.n.days - b.n.days)
@@ -240,27 +240,27 @@ Deno.serve(async (req) => {
         const amt = money(Number(f.amount));
         if (isIncome(f)) {
           // Ingresos: aviso el día que llega y si quedó alguno sin registrar
-          for (const o of pend.filter((x) => x.due < today).slice(-3)) out.push(`💼 ${f.name} del ${fmtDate(o.due)}: ¿ya llegó? Regístralo (${amt})`);
+          for (const o of pend.filter((x) => x.due < today).slice(-3)) out.push(`${f.name} del ${fmtDate(o.due)}: ¿ya llegó? Regístralo (${amt})`);
           const n = pend.find((x) => x.due >= today);
-          if (n && n.due === today) out.push(`💼 Hoy llega ${f.name} (${amt})`);
+          if (n && n.due === today) out.push(`Hoy llega ${f.name} (${amt})`);
           continue;
         }
         // Pagos atrasados (hasta 3) y el siguiente si está dentro de los días de aviso
         for (const o of pend.filter((x) => x.due < today).slice(-3)) {
           const d = -daysBetween(today, o.due);
-          out.push(`⚠️ ${f.name} ${freqOf(f) === "mensual" ? `de ${MESES[Number(o.key.slice(5, 7)) - 1]}` : `del ${fmtDate(o.due)}`}: venció hace ${d} día${d === 1 ? "" : "s"} (${amt})`);
+          out.push(`${f.name} ${freqOf(f) === "mensual" ? `de ${MESES[Number(o.key.slice(5, 7)) - 1]}` : `del ${fmtDate(o.due)}`}: venció hace ${d} día${d === 1 ? "" : "s"} (${amt})`);
         }
         const n = pend.find((x) => x.due >= today);
         if (!n) continue;
         const days = daysBetween(today, n.due);
         if (days > f.remind_days) continue;
         const when = days === 0 ? "vence HOY" : days === 1 ? "vence mañana" : `vence en ${days} días`;
-        out.push(`${days === 0 ? "⚠️" : "🔔"} ${f.name} ${when} (${amt})`);
+        out.push(`${f.name} ${when} (${amt})`);
       }
       // Presupuestos excedidos o casi agotados (≥ 90 %)
       for (const f of budgets) {
         const spent = await spentIn(f);
-        if (spent >= Number(f.amount) * 0.9 && Number(f.amount) > 0) out.push("🎯 " + budgetText(f, spent));
+        if (spent >= Number(f.amount) * 0.9 && Number(f.amount) > 0) out.push(budgetText(f, spent));
       }
       return text(out.join("\n"));
     }
@@ -279,15 +279,15 @@ Deno.serve(async (req) => {
       const carry = await carryIn();
       const late = fx.filter((f) => !isIncome(f)).flatMap((f) => pendingOcc(f).filter((o) => o.due < `${ym}-01`).map(() => Number(f.amount)));
       const lines = [
-        `📊 ${MESES[Number(ym.slice(5)) - 1]}`,
+        `Resumen de ${MESES[Number(ym.slice(5)) - 1]}`,
         `Ingresos: ${money(inc)}`, `Gastos: ${money(exp)}`,
         ...(carry ? [`Viene de meses anteriores: ${money(carry)}`] : []),
         `Disponible: ${money(inc - exp + carry)}`,
-        pend.length ? `Pagos fijos pendientes: ${pend.length} (${money(sum(pend))})` : "✅ Pagos fijos del mes al corriente",
+        pend.length ? `Pagos fijos pendientes: ${pend.length} (${money(sum(pend))})` : "Pagos fijos del mes al corriente",
       ];
-      if (late.length) lines.push(`⏰ Atrasados de meses anteriores: ${late.length} (${money(sum(late))})`);
+      if (late.length) lines.push(`Atrasados de meses anteriores: ${late.length} (${money(sum(late))})`);
       if (pendInc.length) lines.push(`Ingresos fijos por recibir: ${money(sum(pendInc))}`);
-      for (const f of budgets) lines.push("🎯 " + budgetText(f, await spentIn(f)));
+      for (const f of budgets) lines.push(budgetText(f, await spentIn(f)));
       return text(lines.join("\n"));
     }
     return text("Resumen desconocido. Usa: avisos o mes.", 400);
@@ -352,8 +352,8 @@ Deno.serve(async (req) => {
   // Si el gasto cae en una categoría con presupuesto, dice cuánto queda
   const extra: string[] = [];
   if (row.type === "gasto") {
-    for (const f of budgets.filter((b) => b.category_id && b.category_id === row.category_id)) extra.push("🎯 " + budgetText(f, await spentIn(f)));
+    for (const f of budgets.filter((b) => b.category_id && b.category_id === row.category_id)) extra.push(budgetText(f, await spentIn(f)));
   }
   const carry = await carryIn();
-  return text(`✅ ${label}: ${parts}\nEste mes: gastos ${money(exp)} · disponible ${money(inc - exp + carry)}` + (extra.length ? "\n" + extra.join("\n") : ""));
+  return text(`${label}: ${parts}\nEste mes: gastos ${money(exp)} · disponible ${money(inc - exp + carry)}` + (extra.length ? "\n" + extra.join("\n") : ""));
 });

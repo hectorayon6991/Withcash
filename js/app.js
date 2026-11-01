@@ -24,31 +24,36 @@
 
   const MESES = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
   const CURRENCIES = [["MXN","Peso mexicano"],["USD","Dólar"],["HNL","Lempira"],["GTQ","Quetzal"],["COP","Peso colombiano"],["PEN","Sol"],["CLP","Peso chileno"],["ARS","Peso argentino"],["EUR","Euro"]];
-  const KIND_LABEL = { tarjeta: "💳 Tarjetas de crédito", servicio: "💡 Servicios y colegio", suscripcion: "📺 Suscripciones", deuda: "🚗 Deudas y préstamos",
-    ingreso: "💼 Ingresos fijos", presupuesto: "🎯 Presupuestos" };
+  const { ico, iconKey, PICKABLE } = window.WCIcons;
+  const catIco = (c, fb = "box") => ico(iconKey(c?.icon, c?.name, fb));
+  const accIco = (a, fb = "wallet") => ico(iconKey(a?.icon, a?.name, fb));
+  const KIND_ICON = { tarjeta: "card", servicio: "bulb", suscripcion: "tv", deuda: "car", ingreso: "briefcase", presupuesto: "target" };
+  const KIND_NAME = { tarjeta: "Tarjetas de crédito", servicio: "Servicios y colegio", suscripcion: "Suscripciones", deuda: "Deudas y préstamos",
+    ingreso: "Ingresos fijos", presupuesto: "Presupuestos" };
+  const KIND_LABEL = Object.fromEntries(Object.entries(KIND_NAME).map(([k, v]) => [k, `<span class="ttl">${ico(KIND_ICON[k])}${v}</span>`]));
 
   const DEFAULT_CATS = [
-    ["🍔","Comida","gasto"],["🛒","Súper","gasto"],["🚗","Transporte","gasto"],["⛽","Gasolina","gasto"],["🏠","Casa","gasto"],
-    ["💡","Servicios","gasto"],["💳","Tarjetas","gasto"],["🎓","Educación","gasto"],["💊","Salud","gasto"],["🎬","Entretenimiento","gasto"],
-    ["👕","Ropa","gasto"],["👧","Hija","gasto"],["📺","Suscripciones","gasto"],["🎁","Regalos","gasto"],["📦","Otros","gasto"],
-    ["💼","Sueldo","ingreso"],["💵","Extra","ingreso"],["🏷️","Ventas","ingreso"],["↩️","Reembolso","ingreso"],["📦","Otros ingresos","ingreso"],
+    ["food","Comida","gasto"],["cart","Súper","gasto"],["car","Transporte","gasto"],["fuel","Gasolina","gasto"],["home","Casa","gasto"],
+    ["bulb","Servicios","gasto"],["card","Tarjetas","gasto"],["school","Educación","gasto"],["health","Salud","gasto"],["film","Entretenimiento","gasto"],
+    ["shirt","Ropa","gasto"],["child","Hija","gasto"],["tv","Suscripciones","gasto"],["gift","Regalos","gasto"],["box","Otros","gasto"],
+    ["briefcase","Sueldo","ingreso"],["cash","Extra","ingreso"],["tag","Ventas","ingreso"],["refund","Reembolso","ingreso"],["box","Otros ingresos","ingreso"],
   ];
-  const DEFAULT_ACCS = [["💵","Efectivo"],["🏦","Débito"],["💳","Crédito"]];
+  const DEFAULT_ACCS = [["cash","Efectivo"],["bank","Débito"],["card","Crédito"]];
   const TEMPLATES = [
-    { name: "Sueldo", kind: "ingreso", cat: "Sueldo", icon: "💼", frequency: "quincenal", day: 15, day2: 31 },
-    { name: "Gasolina", kind: "presupuesto", cat: "Gasolina", icon: "⛽", frequency: "semanal", weekday: 1 },
-    { name: "Súper", kind: "presupuesto", cat: "Súper", icon: "🛒", frequency: "semanal", weekday: 1 },
-    { name: "Tarjeta de crédito", kind: "tarjeta", cat: "Tarjetas", icon: "💳" },
-    { name: "Luz", kind: "servicio", cat: "Servicios", icon: "💡" },
-    { name: "Internet", kind: "servicio", cat: "Servicios", icon: "🌐" },
-    { name: "Colegio", kind: "servicio", cat: "Educación", icon: "🎓" },
-    { name: "Agua", kind: "servicio", cat: "Servicios", icon: "🚰" },
-    { name: "Teléfono", kind: "servicio", cat: "Servicios", icon: "📱" },
-    { name: "Renta", kind: "servicio", cat: "Casa", icon: "🏠" },
-    { name: "Netflix", kind: "suscripcion", cat: "Suscripciones", icon: "📺" },
-    { name: "Spotify", kind: "suscripcion", cat: "Suscripciones", icon: "🎵" },
-    { name: "Gimnasio", kind: "suscripcion", cat: "Salud", icon: "🏋️" },
-    { name: "Préstamo auto", kind: "deuda", cat: "Transporte", icon: "🚗" },
+    { name: "Sueldo", kind: "ingreso", cat: "Sueldo", icon: "briefcase", frequency: "quincenal", day: 15, day2: 31 },
+    { name: "Gasolina", kind: "presupuesto", cat: "Gasolina", icon: "fuel", frequency: "semanal", weekday: 1 },
+    { name: "Súper", kind: "presupuesto", cat: "Súper", icon: "cart", frequency: "semanal", weekday: 1 },
+    { name: "Tarjeta de crédito", kind: "tarjeta", cat: "Tarjetas", icon: "card" },
+    { name: "Luz", kind: "servicio", cat: "Servicios", icon: "bulb" },
+    { name: "Internet", kind: "servicio", cat: "Servicios", icon: "wifi" },
+    { name: "Colegio", kind: "servicio", cat: "Educación", icon: "school" },
+    { name: "Agua", kind: "servicio", cat: "Servicios", icon: "drop" },
+    { name: "Teléfono", kind: "servicio", cat: "Servicios", icon: "phone" },
+    { name: "Renta", kind: "servicio", cat: "Casa", icon: "home" },
+    { name: "Netflix", kind: "suscripcion", cat: "Suscripciones", icon: "tv" },
+    { name: "Spotify", kind: "suscripcion", cat: "Suscripciones", icon: "music" },
+    { name: "Gimnasio", kind: "suscripcion", cat: "Salud", icon: "dumbbell" },
+    { name: "Préstamo auto", kind: "deuda", cat: "Transporte", icon: "car" },
   ];
 
   // ---------- Estado ----------
@@ -166,7 +171,7 @@
     const period = fr === "semanal" ? "esta semana" : fr === "quincenal" ? "esta quincena" : "este mes";
     const reset = daysBetween(today(), next) <= 7 ? `el ${WEEKDAYS[dow(next)]}` : fmtShort(next);
     return `<li class="item tap" data-edit-fixed="${f.id}">
-      <div class="ico">${esc(c?.icon || "🎯")}</div>
+      <div class="ico">${catIco(c, "target")}</div>
       <div class="main">
         <div class="t">${esc(f.name)}</div>
         <div class="s"><b class="num">${money(u.spent)}</b> de ${money(u.limit)} ${period}</div>
@@ -404,14 +409,15 @@
   function movItem(m) {
     const c = cat(m.category_id), a = acc(m.account_id);
     const isT = m.type === "transferencia";
-    const icon = isT ? "🔁" : c?.icon || (m.type === "ingreso" ? "💵" : "📦");
+    const icon = isT ? "swap" : iconKey(c?.icon, c?.name, m.type === "ingreso" ? "cash" : "box");
     const title = m.note || (isT ? "Transferencia" : c?.name || "Sin categoría");
     const sub = isT ? `${a?.name || "?"} → ${acc(m.to_account_id)?.name || "?"}`
-      : [m.note ? c?.name : null, a?.name, m.source === "atajo" ? "⚡ atajo" : null].filter(Boolean).join(" · ");
+      : [m.note ? c?.name : null, a?.name].filter(Boolean).join(" · ");
+    const viaAtajo = m.source === "atajo" ? `${sub ? " · " : ""}${ico("zap", "i-sm")} atajo` : "";
     const sign = m.type === "ingreso" ? "+" : m.type === "gasto" ? "−" : "";
     return `<li class="item tap" data-mov="${m.id}">
-      <div class="ico">${esc(icon)}</div>
-      <div class="main"><div class="t">${esc(title)}</div><div class="s">${esc(sub)}</div></div>
+      <div class="ico${m.type === "ingreso" ? " inc" : ""}">${ico(icon)}</div>
+      <div class="main"><div class="t">${esc(title)}</div><div class="s">${esc(sub)}${viaAtajo}</div></div>
       <div class="amt num ${m.type === "ingreso" ? "pos" : ""}">${sign}${money(Number(m.amount))}</div>
     </li>`;
   }
@@ -437,7 +443,7 @@
       ? (days < 0 ? "¿Ya llegó?" : days === 0 ? "Llega hoy" : days === 1 ? "Mañana" : `En ${days} días`)
       : days < 0 ? `Venció hace ${-days} día${days === -1 ? "" : "s"}` : days === 0 ? "Vence hoy" : days === 1 ? "Mañana" : `En ${days} días`;
     return `<li class="item">
-      <div class="ico">${esc(c?.icon || (inc ? "💼" : "📅"))}</div>
+      <div class="ico${inc ? " inc" : ""}">${catIco(c, inc ? "briefcase" : "calendar")}</div>
       <div class="main"><div class="t">${esc(f.name)}${inc ? ` <span class="num pos">+${money(Number(f.amount))}</span>` : ""}</div><div class="s"><span class="badge ${cls}">${when}</span> · ${fmtDay(r.due)}</div></div>
       <div class="actions"><button class="btn sm ${inc ? "" : "primary"}" data-pay="${f.id}" data-month="${r.month}">${inc ? "Recibir" : "Pagar"}</button></div>
     </li>`;
@@ -465,14 +471,14 @@
         <div class="progress-label"><span>Presupuesto ${Math.round(pct * 100)}%</span><span>${pct > 1 ? "Excedido por " + money(t.exp - budget) : "Quedan " + money(budget - t.exp)}</span></div>`;
     }
     if (!t.inc && isCur) html += S.fixed.some((f) => f.active && isIncome(f))
-      ? `<p class="hint" style="margin:10px 0 0">💡 Cuando te llegue tu sueldo, tócale <b>Recibir</b> para contarlo.</p>`
-      : `<p class="hint" style="margin:10px 0 0">💡 Registra tu sueldo con <b>+ → Ingreso</b>, o agrégalo en <b>Fijos</b> como ingreso fijo.</p>`;
+      ? `<p class="hint" style="margin:10px 0 0">${ico("bulb", "i-sm")} Cuando te llegue tu sueldo, tócale <b>Recibir</b> para contarlo.</p>`
+      : `<p class="hint" style="margin:10px 0 0">${ico("bulb", "i-sm")} Registra tu sueldo con <b>+ → Ingreso</b>, o agrégalo en <b>Fijos</b> como ingreso fijo.</p>`;
     html += `</section>`;
 
     if (accs.length) {
       html += `<div class="acc-scroll">${accs.map((a) => {
         const b = accountBalance(a);
-        return `<div class="acc-card"><div class="n">${esc(a.icon)} ${esc(a.name)}</div><div class="v num ${b < 0 ? "neg" : ""}">${money(b)}</div></div>`;
+        return `<div class="acc-card"><div class="n">${accIco(a)}${esc(a.name)}</div><div class="v num ${b < 0 ? "neg" : ""}">${money(b)}</div></div>`;
       }).join("")}</div>`;
     }
 
@@ -482,9 +488,9 @@
     const up = upcomingList(10);
     html += `<section class="card"><h2>Próximos pagos <button class="link" data-goto="fijos">Ver todos</button></h2>`;
     if (!S.fixed.some((f) => f.active && !isBudget(f))) {
-      html += `<div class="empty"><div class="e">📅</div>Agrega tus pagos fijos (tarjetas, luz, colegio…) o tu sueldo para recordarlos.<br><br><button class="btn primary" data-new-fixed>Agregar fijo</button></div>`;
+      html += `<div class="empty"><div class="e">${ico("calendar")}</div>Agrega tus pagos fijos (tarjetas, luz, colegio…) o tu sueldo para recordarlos.<br><br><button class="btn primary" data-new-fixed>Agregar fijo</button></div>`;
     } else if (!up.soon.length) {
-      html += `<div class="empty">✅ Todo al corriente.${up.next ? `<br><span class="hint">Siguiente: <b>${esc(up.next.f.name)}</b> ${fmtDay(up.next.due)} (${money(Number(up.next.f.amount))})</span>` : ""}</div>`;
+      html += `<div class="empty"><div class="e ok">${ico("checkCircle")}</div>Todo al corriente.${up.next ? `<br><span class="hint">Siguiente: <b>${esc(up.next.f.name)}</b> ${fmtDay(up.next.due)} (${money(Number(up.next.f.amount))})</span>` : ""}</div>`;
     } else {
       html += `<ul class="list">${up.soon.map(upcomingItem).join("")}</ul>`;
     }
@@ -493,7 +499,7 @@
     const recent = monthMovs(ym).slice(0, 6);
     html += `<section class="card"><h2>Últimos movimientos <button class="link" data-goto="movimientos">Ver todos</button></h2>`;
     html += recent.length ? `<ul class="list">${recent.map(movItem).join("")}</ul>`
-      : `<div class="empty"><div class="e">🧾</div>Aún no hay movimientos este mes.<br>Toca <b>+</b> para agregar tu primer gasto.</div>`;
+      : `<div class="empty"><div class="e">${ico("receipt")}</div>Aún no hay movimientos este mes.<br>Toca <b>+</b> para agregar tu primer gasto.</div>`;
     html += `</section>`;
     return html;
   }
@@ -504,8 +510,8 @@
     const usedCats = [...new Set(all.map((m) => m.category_id).filter(Boolean))].map(cat).filter(Boolean);
     const list = all.filter((m) => f === "todos" ? true : f === "gasto" || f === "ingreso" || f === "transferencia" ? m.type === f : m.category_id === f);
     const chip = (k, label) => `<button class="chip ${f === k ? "active" : ""}" data-filter="${k}">${label}</button>`;
-    let html = `<div class="filters">${chip("todos", "Todos")}${chip("gasto", "Gastos")}${chip("ingreso", "Ingresos")}${all.some((m) => m.type === "transferencia") ? chip("transferencia", "Transferencias") : ""}${usedCats.map((c) => chip(c.id, `${esc(c.icon)} ${esc(c.name)}`)).join("")}</div>`;
-    if (!list.length) return html + `<div class="card empty"><div class="e">🧾</div>Sin movimientos.</div>`;
+    let html = `<div class="filters">${chip("todos", "Todos")}${chip("gasto", "Gastos")}${chip("ingreso", "Ingresos")}${all.some((m) => m.type === "transferencia") ? chip("transferencia", "Transferencias") : ""}${usedCats.map((c) => chip(c.id, `${catIco(c)}${esc(c.name)}`)).join("")}</div>`;
+    if (!list.length) return html + `<div class="card empty"><div class="e">${ico("receipt")}</div>Sin movimientos.</div>`;
     const sum = list.reduce((s, m) => s + (m.type === "ingreso" ? Number(m.amount) : m.type === "gasto" ? -Number(m.amount) : 0), 0);
     html += `<p class="hint">${list.length} movimiento(s) · total <b class="num">${money(sum)}</b></p><section class="card">`;
     const byDay = {};
@@ -521,7 +527,7 @@
     const ym = S.ym;
     const list = S.fixed.filter((f) => f.active);
     if (!list.length) {
-      return `<section class="card"><div class="empty"><div class="e">📅</div><b>Tus fijos</b><br>Pagos (tarjetas, luz, colegio, suscripciones, deudas), ingresos fijos (sueldo por semana, quincena o mes) y presupuestos (ej. gasolina $850 cada semana).<br><br><button class="btn primary" data-new-fixed>Agregar fijo</button></div></section>`;
+      return `<section class="card"><div class="empty"><div class="e">${ico("calendar")}</div><b>Tus fijos</b><br>Pagos (tarjetas, luz, colegio, suscripciones, deudas), ingresos fijos (sueldo por semana, quincena o mes) y presupuestos (ej. gasolina $850 cada semana).<br><br><button class="btn primary" data-new-fixed>Agregar fijo</button></div></section>`;
     }
     // Suma de las ocurrencias del mes (lo pagado cuenta con su monto real)
     const sumOcc = (items) => {
@@ -536,10 +542,10 @@
     const item = (f) => {
       const s = fixedStatus(f, ym), c = cat(f.category_id), dp = debtProgress(f), inc = isIncome(f);
       const amt = s.paid ? Number(s.mov.amount) : Number(f.amount);
-      const action = s.none ? "" : s.paid ? `<button class="btn sm" data-mov-open="${s.mov.id}">✓</button>`
+      const action = s.none ? "" : s.paid ? `<button class="btn sm" data-mov-open="${s.mov.id}" aria-label="Ver pago">${ico("check")}</button>`
         : `<button class="btn sm ${inc ? "" : "primary"}" data-pay="${f.id}" data-month="${s.key}">${inc ? "Recibir" : "Pagar"}</button>`;
       return `<li class="item">
-        <div class="ico tap" data-edit-fixed="${f.id}">${esc(c?.icon || (inc ? "💼" : "📅"))}</div>
+        <div class="ico tap${inc ? " inc" : ""}" data-edit-fixed="${f.id}">${catIco(c, inc ? "briefcase" : "calendar")}</div>
         <div class="main tap" data-edit-fixed="${f.id}">
           <div class="t">${esc(f.name)}</div>
           <div class="s"><span class="badge ${s.cls}">${s.label}</span> · <span class="${inc ? "pos" : ""}">${money(amt)}</span>${freqOf(f) !== "mensual" ? ` · ${scheduleLabel(f)}` : ""}</div>
@@ -556,7 +562,7 @@
         .sort((a, b) => a.due.localeCompare(b.due));
       if (late.length) {
         const owe = late.filter((r) => !isIncome(r.f)).reduce((s, r) => s + Number(r.f.amount), 0);
-        html += `<section class="card"><h2>⏰ De meses anteriores${owe ? ` <span class="hint num neg">${money(owe)} por pagar</span>` : ""}</h2><ul class="list">${late.map(upcomingItem).join("")}</ul></section>`;
+        html += `<section class="card"><h2><span class="ttl">${ico("clock")}De meses anteriores</span>${owe ? ` <span class="hint num neg">${money(owe)} por pagar</span>` : ""}</h2><ul class="list">${late.map(upcomingItem).join("")}</ul></section>`;
       }
     }
     const bills = list.filter(isBill);
@@ -610,7 +616,7 @@
 
     // Consejos
     const tips = buildTips(ym, t, tp);
-    if (tips.length) html += `<section class="card"><h2>Cómo ahorrar más</h2><ul class="tips">${tips.map(([e, s]) => `<li><span class="e">${e}</span><span>${s}</span></li>`).join("")}</ul></section>`;
+    if (tips.length) html += `<section class="card"><h2>Cómo ahorrar más</h2><ul class="tips">${tips.map(([e, s]) => `<li><span class="e">${ico(e)}</span><span>${s}</span></li>`).join("")}</ul></section>`;
 
     // Por categoría
     const byCat = catTotals(ym), byCatPrev = catTotals(prevYm);
@@ -620,11 +626,11 @@
     else {
       const max = rows[0][1];
       html += `<div class="bars">${rows.map(([id, v]) => {
-        const c = cat(id) || { icon: "📦", name: "Sin categoría" };
+        const c = cat(id) || { icon: "box", name: "Sin categoría" };
         const p = byCatPrev[id] || 0;
         const d = p ? (v - p) / p : null;
         const delta = d == null ? "" : Math.abs(d) < 0.05 ? "" : `<span class="delta ${d > 0 ? "up" : "down"}" title="vs ${monthName(prevYm)}">${d > 0 ? "▲" : "▼"} ${Math.round(Math.abs(d) * 100)}%</span>`;
-        return `<div class="bar-row"><div class="top"><span class="n">${esc(c.icon)} ${esc(c.name)} · ${Math.round(v / t.exp * 100)}%</span><b class="num">${money(v)}${delta}</b></div>
+        return `<div class="bar-row"><div class="top"><span class="n">${catIco(c)} ${esc(c.name)} · ${Math.round(v / t.exp * 100)}%</span><b class="num">${money(v)}${delta}</b></div>
           <div class="bar-track"><i style="width:${(v / max * 100).toFixed(1)}%"></i></div></div>`;
       }).join("")}</div><p class="hint" style="margin-top:10px">▲▼ comparado con ${monthName(prevYm)}.</p>`;
     }
@@ -646,8 +652,8 @@
     const accRows = Object.entries(byAcc).sort((a, b) => b[1] - a[1]);
     if (accRows.length) {
       html += `<section class="card"><h2>¿Con qué pagaste?</h2><ul class="list">${accRows.map(([id, v]) => {
-        const a = acc(id) || { icon: "❔", name: "Sin cuenta" };
-        return `<li class="item"><div class="ico">${esc(a.icon)}</div><div class="main"><div class="t">${esc(a.name)}</div></div><div class="amt num">${money(v)}</div></li>`;
+        const a = acc(id) || { icon: "question", name: "Sin cuenta" };
+        return `<li class="item"><div class="ico">${accIco(a)}</div><div class="main"><div class="t">${esc(a.name)}</div></div><div class="amt num">${money(v)}</div></li>`;
       }).join("")}</ul></section>`;
     }
     return html;
@@ -662,17 +668,17 @@
     const goal = Number(S.settings.savings_goal) || 0;
     const budget = Number(S.settings.budget) || 0;
     const isCur = ym === ymOf(today());
-    if (!t.inc && !t.exp) return [["🧾", "Registra tus ingresos y gastos de este mes para ver tu balance y consejos."]];
-    if (!t.inc) tips.push(["💼", "Registra tus ingresos (sueldo, extras) para saber cuánto puedes ahorrar."]);
-    else if (t.net < 0) tips.push(["🚨", `Gastaste <b>${money(-t.net)}</b> más de lo que ingresó este mes.`]);
+    if (!t.inc && !t.exp) return [["receipt", "Registra tus ingresos y gastos de este mes para ver tu balance y consejos."]];
+    if (!t.inc) tips.push(["briefcase", "Registra tus ingresos (sueldo, extras) para saber cuánto puedes ahorrar."]);
+    else if (t.net < 0) tips.push(["alert", `Gastaste <b>${money(-t.net)}</b> más de lo que ingresó este mes.`]);
     else {
       const r = t.net / t.inc;
-      if (r >= 0.2) tips.push(["🎉", `¡Bien! Ahorras el <b>${Math.round(r * 100)}%</b> de tus ingresos.`]);
-      else tips.push(["🎯", `Ahorras el ${Math.round(r * 100)}%. La meta recomendada es 20%: <b>${money(t.inc * 0.2)}</b> al mes.`]);
+      if (r >= 0.2) tips.push(["star", `¡Bien! Ahorras el <b>${Math.round(r * 100)}%</b> de tus ingresos.`]);
+      else tips.push(["target", `Ahorras el ${Math.round(r * 100)}%. La meta recomendada es 20%: <b>${money(t.inc * 0.2)}</b> al mes.`]);
     }
     if (goal > 0 && t.inc > 0) {
       const ok = t.net >= goal;
-      tips.push([ok ? "✅" : "🐷", ok ? `Cumpliste tu meta de ahorro de ${money(goal)}.` : `Para tu meta de ahorro (${money(goal)}) te faltan <b>${money(goal - Math.max(0, t.net))}</b>.`]);
+      tips.push([ok ? "checkCircle" : "piggy", ok ? `Cumpliste tu meta de ahorro de ${money(goal)}.` : `Para tu meta de ahorro (${money(goal)}) te faltan <b>${money(goal - Math.max(0, t.net))}</b>.`]);
     }
     if (isCur) {
       const day = Number(today().slice(8)), dim = daysInMonth(ym);
@@ -680,7 +686,7 @@
         const pendFixed = S.fixed.filter((f) => f.active && isBill(f))
           .reduce((s, f) => s + monthOcc(f, ym).filter((o) => !o.mov).length * Number(f.amount), 0);
         const proj = t.varExp / day * dim + t.fixedExp + pendFixed;
-        tips.push(["📈", `A este ritmo terminarías el mes con gastos de ~<b>${money(proj)}</b>${budget ? (proj > budget ? `, ${money(proj - budget)} arriba de tu presupuesto` : ", dentro de tu presupuesto") : ""}.`]);
+        tips.push(["trendUp", `A este ritmo terminarías el mes con gastos de ~<b>${money(proj)}</b>${budget ? (proj > budget ? `, ${money(proj - budget)} arriba de tu presupuesto` : ", dentro de tu presupuesto") : ""}.`]);
       }
     }
     // mayor gasto variable
@@ -688,33 +694,33 @@
     for (const m of monthMovs(ym)) if (m.type === "gasto" && !m.fixed_id) vc[m.category_id || "-"] = (vc[m.category_id || "-"] || 0) + Number(m.amount);
     const top = Object.entries(vc).sort((a, b) => b[1] - a[1])[0];
     if (top && top[1] > 0) {
-      const c = cat(top[0]) || { icon: "📦", name: "Sin categoría" };
-      tips.push([c.icon, `<b>${esc(c.name)}</b> es tu mayor gasto variable (${money(top[1])}). Bajarlo 15% = <b>${money(top[1] * 0.15)}</b> al mes, ${money(top[1] * 0.15 * 12)} al año.`]);
+      const c = cat(top[0]) || { icon: "box", name: "Sin categoría" };
+      tips.push([iconKey(c.icon, c.name), `<b>${esc(c.name)}</b> es tu mayor gasto variable (${money(top[1])}). Bajarlo 15% = <b>${money(top[1] * 0.15)}</b> al mes, ${money(top[1] * 0.15 * 12)} al año.`]);
     }
     // categorías que subieron
     const cur = catTotals(ym), prev = catTotals(addMonths(ym, -1));
     const ups = Object.entries(cur).filter(([id, v]) => prev[id] > 0 && v - prev[id] > Math.max(prev[id] * 0.25, 1)).sort((a, b) => (b[1] - prev[b[0]]) - (a[1] - prev[a[0]])).slice(0, 2);
     for (const [id, v] of ups) {
-      const c = cat(id) || { icon: "📦", name: "Sin categoría" };
-      tips.push(["⬆️", `${esc(c.icon)} ${esc(c.name)} subió ${Math.round((v - prev[id]) / prev[id] * 100)}% vs ${monthName(addMonths(ym, -1))} (+${money(v - prev[id])}).`]);
+      const c = cat(id) || { icon: "box", name: "Sin categoría" };
+      tips.push(["arrowUp", `${esc(c.name)} subió ${Math.round((v - prev[id]) / prev[id] * 100)}% vs ${monthName(addMonths(ym, -1))} (+${money(v - prev[id])}).`]);
     }
     // gastos hormiga
     const small = S.settings.currency === "MXN" ? 150 : 10;
     const ants = monthMovs(ym).filter((m) => m.type === "gasto" && !m.fixed_id && Number(m.amount) <= small);
-    if (ants.length >= 8) tips.push(["🐜", `Hiciste ${ants.length} gastos pequeños (≤ ${money(small)}) que suman <b>${money(ants.reduce((s, m) => s + Number(m.amount), 0))}</b>. Son los "gastos hormiga".`]);
+    if (ants.length >= 8) tips.push(["coins", `Hiciste ${ants.length} gastos pequeños (≤ ${money(small)}) que suman <b>${money(ants.reduce((s, m) => s + Number(m.amount), 0))}</b>. Son los "gastos hormiga".`]);
     // fijos vs ingreso
     const fixedMonthly = S.fixed.filter((f) => f.active && isBill(f)).reduce((s, f) => s + perMonth(f), 0);
-    if (t.inc > 0 && fixedMonthly / t.inc > 0.5) tips.push(["📌", `Tus pagos fijos son el ${Math.round(fixedMonthly / t.inc * 100)}% de tus ingresos (lo ideal es ≤ 50%).`]);
+    if (t.inc > 0 && fixedMonthly / t.inc > 0.5) tips.push(["pin", `Tus pagos fijos son el ${Math.round(fixedMonthly / t.inc * 100)}% de tus ingresos (lo ideal es ≤ 50%).`]);
     const subs = S.fixed.filter((f) => f.active && f.kind === "suscripcion");
     const subsMonthly = subs.reduce((s, f) => s + perMonth(f), 0);
-    if (subs.length >= 2) tips.push(["📺", `Pagas ${subs.length} suscripciones: ${money(subsMonthly)} al mes (${money(subsMonthly * 12)} al año). ¿Usas todas?`]);
+    if (subs.length >= 2) tips.push(["tv", `Pagas ${subs.length} suscripciones: ${money(subsMonthly)} al mes (${money(subsMonthly * 12)} al año). ¿Usas todas?`]);
     if (isCur) for (const f of S.fixed.filter((x) => x.active && isBudget(x))) {
       const u = budgetUse(f);
-      if (u.left < 0) tips.push(["🎯", `Te pasaste <b>${money(-u.left)}</b> del presupuesto de ${esc(f.name)} (${money(u.limit)} ${scheduleLabel(f)}).`]);
+      if (u.left < 0) tips.push(["target", `Te pasaste <b>${money(-u.left)}</b> del presupuesto de ${esc(f.name)} (${money(u.limit)} ${scheduleLabel(f)}).`]);
     }
     if (tp.exp > 0 && t.exp > 0 && !isCur) {
       const d = (t.exp - tp.exp) / tp.exp;
-      if (Math.abs(d) >= 0.05) tips.push([d > 0 ? "🔺" : "🔻", `Gastaste ${Math.round(Math.abs(d) * 100)}% ${d > 0 ? "más" : "menos"} que en ${monthName(addMonths(ym, -1))}.`]);
+      if (Math.abs(d) >= 0.05) tips.push([d > 0 ? "trendUp" : "trendDown", `Gastaste ${Math.round(Math.abs(d) * 100)}% ${d > 0 ? "más" : "menos"} que en ${monthName(addMonths(ym, -1))}.`]);
     }
     return tips;
   }
@@ -736,7 +742,7 @@
     const hint = $("#entryFixedHint");
     const f = entry.fixed_id && S.fixed.find((x) => x.id === entry.fixed_id);
     hint.hidden = !f;
-    if (f) hint.innerHTML = `${isIncome(f) ? "💼 Ingreso fijo" : "📅 Pago"} de <b>${esc(f.name)}</b> ${occLabel(entry.fixed_for)}.` +
+    if (f) hint.innerHTML = `${isIncome(f) ? ico("briefcase", "i-sm") + " Ingreso fijo" : ico("calendar", "i-sm") + " Pago"} de <b>${esc(f.name)}</b> ${occLabel(entry.fixed_for)}.` +
       (f.kind === "tarjeta" ? `<br>Si tus compras ya las registras con la cuenta Crédito, usa <b>Transferir</b> (Débito → Crédito) para no contarlas doble.` : "");
     setEntryType(entry.type);
     fitAmount();
@@ -753,9 +759,9 @@
     if (!isT) {
       const cats = activeCats(type);
       if (!cats.some((c) => c.id === entry.category_id)) entry.category_id = null;
-      $("#catChips").innerHTML = cats.map((c) => `<button type="button" class="chip ${c.id === entry.category_id ? "active" : ""}" data-cat="${c.id}">${esc(c.icon)} ${esc(c.name)}</button>`).join("");
+      $("#catChips").innerHTML = cats.map((c) => `<button type="button" class="chip ${c.id === entry.category_id ? "active" : ""}" data-cat="${c.id}">${catIco(c)}${esc(c.name)}</button>`).join("");
     }
-    const opts = activeAccs().map((a) => `<option value="${a.id}">${esc(a.icon)} ${esc(a.name)}</option>`).join("");
+    const opts = activeAccs().map((a) => `<option value="${a.id}">${esc(a.name)}</option>`).join("");
     $("#entryAccount").innerHTML = `<option value="">— Sin especificar —</option>` + opts;
     $("#entryAccount").value = entry.account_id && acc(entry.account_id) ? entry.account_id : "";
     $("#entryToAccount").innerHTML = opts;
@@ -811,7 +817,7 @@
     fixedEditing = f;
     $("#fixedTitle").textContent = f ? "Editar fijo" : "Nuevo fijo";
     $("#fixedTemplates").hidden = !!f;
-    $("#fixedTemplates").innerHTML = TEMPLATES.map((t, i) => `<button type="button" class="chip" data-tpl="${i}">${t.icon} ${t.name}</button>`).join("");
+    $("#fixedTemplates").innerHTML = TEMPLATES.map((t, i) => `<button type="button" class="chip" data-tpl="${i}">${ico(t.icon)}${t.name}</button>`).join("");
     $("#fixedName").value = f?.name || "";
     $("#fixedAmount").value = f ? String(Number(f.amount)) : "";
     $("#fixedKind").value = f?.kind || "servicio";
@@ -822,7 +828,7 @@
     $("#fixedRemind").value = String(f?.remind_days ?? 3);
     $("#fixedInstallments").value = f?.installments || "";
     $("#fixedPaidBefore").value = f?.installments_paid_before || "";
-    $("#fixedAcc").innerHTML = `<option value="">—</option>` + activeAccs().map((a) => `<option value="${a.id}">${esc(a.icon)} ${esc(a.name)}</option>`).join("");
+    $("#fixedAcc").innerHTML = `<option value="">—</option>` + activeAccs().map((a) => `<option value="${a.id}">${esc(a.name)}</option>`).join("");
     $("#fixedAcc").value = f?.account_id || "";
     $("#fixedDelete").hidden = !f;
     syncFixedForm(f?.category_id || "");
@@ -834,7 +840,7 @@
     const inc = kind === "ingreso", bud = kind === "presupuesto";
     const catKind = inc ? "ingreso" : "gasto";
     const prevCat = keepCat ?? $("#fixedCat").value;
-    $("#fixedCat").innerHTML = `<option value="">${bud ? "Elige la categoría…" : "—"}</option>` + activeCats(catKind).map((c) => `<option value="${c.id}">${esc(c.icon)} ${esc(c.name)}</option>`).join("");
+    $("#fixedCat").innerHTML = `<option value="">${bud ? "Elige la categoría…" : "—"}</option>` + activeCats(catKind).map((c) => `<option value="${c.id}">${esc(c.name)}</option>`).join("");
     $("#fixedCat").value = activeCats(catKind).some((c) => c.id === prevCat) ? prevCat : "";
     $("#debtFields").hidden = kind !== "deuda";
     $("#fixedRemindWrap").hidden = bud;
@@ -924,11 +930,21 @@
 
   // ---------- Hoja: cuenta / categoría ----------
   let itemEditing = null; // {table, row}
+  let itemIconKey = "box";
+  function renderIconGrid() {
+    $("#itemIcons").innerHTML = PICKABLE.map((k) => `<button type="button" data-icon="${k}" class="${k === itemIconKey ? "active" : ""}" aria-label="${k}">${ico(k)}</button>`).join("");
+  }
+  $("#itemIcons").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-icon]"); if (!b) return;
+    itemIconKey = b.dataset.icon;
+    $$("#itemIcons button").forEach((x) => x.classList.toggle("active", x === b));
+  });
   function openItem(table, row, kind) {
     itemEditing = { table, row };
     const isAcc = table === "accounts";
     $("#itemTitle").textContent = (row ? "Editar " : "Nueva ") + (isAcc ? "cuenta" : "categoría");
-    $("#itemIcon").value = row?.icon || (isAcc ? "💳" : "📦");
+    itemIconKey = iconKey(row?.icon, row?.name, isAcc ? "wallet" : "box");
+    renderIconGrid();
     $("#itemName").value = row?.name || "";
     $("#itemBalanceWrap").hidden = !isAcc;
     $("#itemKindWrap").hidden = isAcc || !!row;
@@ -945,7 +961,7 @@
     const isAcc = table === "accounts";
     const list = isAcc ? S.accounts : S.categories;
     const r = {
-      id: row?.id || uuid(), user_id: S.user.id, icon: $("#itemIcon").value.trim() || "📦", name: $("#itemName").value.trim(),
+      id: row?.id || uuid(), user_id: S.user.id, icon: itemIconKey, name: $("#itemName").value.trim(),
       sort: row?.sort ?? list.length + 1, archived: false,
     };
     if (!r.name) return;
@@ -965,8 +981,8 @@
 
   // ---------- Ajustes ----------
   function renderSettingsLists() {
-    $("#accountsList").innerHTML = activeAccs().map((a) => `<li class="item tap" data-acc="${a.id}"><div class="ico">${esc(a.icon)}</div><div class="main"><div class="t">${esc(a.name)}</div></div><div class="amt num">${money(accountBalance(a))}</div></li>`).join("");
-    $("#categoriesList").innerHTML = ["gasto", "ingreso"].map((k) => activeCats(k).map((c) => `<button type="button" class="chip" data-catedit="${c.id}">${esc(c.icon)} ${esc(c.name)}${k === "ingreso" ? " ↗" : ""}</button>`).join("")).join("");
+    $("#accountsList").innerHTML = activeAccs().map((a) => `<li class="item tap" data-acc="${a.id}"><div class="ico">${accIco(a)}</div><div class="main"><div class="t">${esc(a.name)}</div></div><div class="amt num">${money(accountBalance(a))}</div></li>`).join("");
+    $("#categoriesList").innerHTML = ["gasto", "ingreso"].map((k) => activeCats(k).map((c) => `<button type="button" class="chip" data-catedit="${c.id}">${catIco(c)}${esc(c.name)}${k === "ingreso" ? ` ${ico("arrowDown", "i-sm")}` : ""}</button>`).join("")).join("");
   }
   function openSettings() {
     $("#userEmail").textContent = S.user?.email ? `Sesión: ${S.user.email}` : "";
@@ -1035,7 +1051,7 @@
       const trig = f.remind_days > 0 && !inc ? `-PT${f.remind_days * 24 - 9}H` : "PT9H";
       const verb = inc ? "Cobrar" : "Pagar";
       lines.push("BEGIN:VEVENT", `UID:withcash-${f.id}`, `DTSTAMP:${stamp}`, `DTSTART;VALUE=DATE:${start}`, rule,
-        `SUMMARY:${icsEsc((inc ? "💼 " : "💳 ") + verb + " " + f.name + " (" + money(Number(f.amount)) + ")")}`,
+        `SUMMARY:${icsEsc(verb + " " + f.name + " (" + money(Number(f.amount)) + ")")}`,
         `DESCRIPTION:${icsEsc("Recordatorio de WithCash")}`,
         "BEGIN:VALARM", "ACTION:DISPLAY", `DESCRIPTION:${icsEsc(verb + " " + f.name)}`, `TRIGGER:${trig}`, "END:VALARM",
         ...(inc ? [] : ["BEGIN:VALARM", "ACTION:DISPLAY", `DESCRIPTION:${icsEsc("Hoy vence " + f.name)}`, "TRIGGER:PT9H", "END:VALARM"]),
@@ -1095,7 +1111,7 @@
             <div><b>categoria</b><span>Elemento elegido (2)</span></div>
           </div>
           <span class="hint">Para elegir la variable, mantén presionado el campo y toca “Seleccionar variable”.</span></li>
-        <li><span class="act">Mostrar notificación</span> → con <b>Contenido de la URL</b>. Te confirmará: “✅ Gasto guardado…”.</li>
+        <li><span class="act">Mostrar notificación</span> → con <b>Contenido de la URL</b>. Te confirmará: “Gasto guardado…”.</li>
       </ol>
 
       <h3>3. Atajo «Registrar ingreso»</h3>
@@ -1123,7 +1139,7 @@
         <li>También puedes ponerlo en <b>Ajustes → Accesibilidad → Tocar → Tocar atrás → Doble toque</b>, o en el <b>Botón de Acción</b>.</li>
       </ol>
 
-      <h3>6. Avisos de pagos cada mañana 🔔</h3>
+      <h3>6. Avisos de pagos cada mañana</h3>
       <p class="hint">Para que el iPhone te avise de tarjetas, luz, colegio, etc. antes de que venzan:</p>
       <ol>
         <li>En Atajos → pestaña <b>Automatización</b> → <b>+</b> → <b>Hora del día</b> → 9:00, Diariamente → <b>Ejecutar inmediatamente</b>.</li>
@@ -1141,29 +1157,88 @@
       try {
         const r = await fetch(base + "&resumen=mes");
         const t = await r.text();
-        toast(r.ok ? "✅ Conexión correcta" : t);
+        toast(r.ok ? "Conexión correcta" : t);
       } catch { toast("No hay conexión con el servidor"); }
     };
   }
   $("#openShortcuts").addEventListener("click", () => { renderShortcuts(); openSheet("#shortcutsSheet"); });
   $("#shortcutsBody").addEventListener("click", async (e) => {
     const b = e.target.closest("[data-copy]"); if (!b) return;
-    try { await navigator.clipboard.writeText(b.dataset.copy); b.textContent = "✓"; setTimeout(() => (b.textContent = "Copiar"), 1500); }
+    try { await navigator.clipboard.writeText(b.dataset.copy); b.textContent = "Copiado"; setTimeout(() => (b.textContent = "Copiar"), 1500); }
     catch { prompt("Copia el texto:", b.dataset.copy); }
   });
 
   // ---------- Eventos globales ----------
+  // Navegación entre secciones con historial (para el gesto de regresar)
+  const tabHistory = [];
+  function goTab(tab, remember = true) {
+    if (tab === S.tab) { window.scrollTo({ top: 0, behavior: "smooth" }); return; }
+    if (remember) { tabHistory.push(S.tab); if (tabHistory.length > 20) tabHistory.shift(); }
+    S.tab = tab; render(); window.scrollTo(0, 0);
+  }
+  // Regresar: cierra la hoja abierta; si no hay, vuelve a la sección anterior (o a Inicio)
+  function goBack() {
+    const open = $$("dialog[open]");
+    if (open.length) { open[open.length - 1].close(); return true; }
+    if (tabHistory.length) { goTab(tabHistory.pop(), false); return true; }
+    if (S.tab !== "inicio") { goTab("inicio", false); return true; }
+    return false;
+  }
   $(".tabbar").addEventListener("click", (e) => {
     const b = e.target.closest("[data-tab]"); if (!b) return;
-    S.tab = b.dataset.tab; render(); window.scrollTo(0, 0);
+    goTab(b.dataset.tab);
   });
+
+  // Gesto: deslizar desde el borde izquierdo hacia la derecha = regresar
+  (() => {
+    const hint = $("#backHint"), EDGE = 28, TRIGGER = 80;
+    let sx = 0, sy = 0, dx = 0, active = false, decided = false;
+    const paint = () => {
+      const p = Math.min(dx, 120);
+      hint.style.transform = `translateX(${p * 0.75 - 60}px) scale(${0.6 + Math.min(p / TRIGGER, 1) * 0.4})`;
+      hint.style.opacity = String(Math.min(p / 40, 1));
+      hint.classList.toggle("ready", dx >= TRIGGER);
+    };
+    const reset = () => {
+      active = false; dx = 0;
+      hint.style.transition = "transform .2s ease, opacity .2s ease"; paint();
+      setTimeout(() => (hint.style.transition = ""), 220);
+    };
+    document.addEventListener("touchstart", (e) => {
+      if (e.touches.length !== 1 || !S.user) return;
+      const t = e.touches[0];
+      if (t.clientX > EDGE) return;
+      sx = t.clientX; sy = t.clientY; dx = 0; active = true; decided = false;
+    }, { passive: true });
+    document.addEventListener("touchmove", (e) => {
+      if (!active) return;
+      const t = e.touches[0], mx = t.clientX - sx, my = t.clientY - sy;
+      if (!decided && (Math.abs(mx) > 10 || Math.abs(my) > 10)) {
+        decided = true;
+        if (Math.abs(my) > Math.abs(mx) || mx < 0) { active = false; return; }   // era desplazamiento vertical
+      }
+      dx = Math.max(0, mx); paint();
+    }, { passive: true });
+    document.addEventListener("touchend", () => {
+      if (!active) return;
+      const go = dx >= TRIGGER;
+      reset();
+      if (go) { if (navigator.vibrate) navigator.vibrate(8); goBack(); }
+    });
+    document.addEventListener("touchcancel", () => active && reset());
+  })();
+
+  // Sin zoom: pellizco ni doble toque
+  ["gesturestart", "gesturechange", "gestureend"].forEach((ev) => document.addEventListener(ev, (e) => e.preventDefault(), { passive: false }));
+  document.addEventListener("touchmove", (e) => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
+  // (el doble toque ya no hace zoom gracias a touch-action en el CSS)
   $("#view").addEventListener("click", (e) => {
     const t = e.target.closest("[data-mov],[data-mov-open],[data-pay],[data-goto],[data-new-fixed],[data-edit-fixed],[data-filter]");
     if (!t) return;
     if (t.dataset.pay) payFixed(t.dataset.pay, t.dataset.month);
     else if (t.dataset.movOpen) openEntry({ id: t.dataset.movOpen });
     else if (t.dataset.mov) openEntry({ id: t.dataset.mov });
-    else if (t.dataset.goto) { S.tab = t.dataset.goto; render(); window.scrollTo(0, 0); }
+    else if (t.dataset.goto) goTab(t.dataset.goto);
     else if (t.hasAttribute("data-new-fixed")) openFixed();
     else if (t.dataset.editFixed) openFixed(t.dataset.editFixed);
     else if (t.dataset.filter) { S.movFilter = t.dataset.filter; render(); }
@@ -1216,7 +1291,7 @@
         msg.textContent = /invalid login/i.test(error.message) ? "Correo o contraseña incorrectos."
           : /not confirmed/i.test(error.message) ? "Confirma tu correo: revisa tu bandeja de entrada." : error.message;
       } else if (signup && !data.session) {
-        msg.textContent = "📩 Te enviamos un correo para confirmar tu cuenta. Después vuelve aquí y entra.";
+        msg.textContent = "Te enviamos un correo para confirmar tu cuenta. Después vuelve aquí y entra.";
       }
     } finally { $("#authSubmit").disabled = false; }
   });
@@ -1228,7 +1303,7 @@
       const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname });
       msg.textContent = error
         ? (/rate|seconds/i.test(error.message) ? "Espera un momento antes de pedir otro correo." : error.message)
-        : "📩 Si el correo está registrado, te llegará un enlace para poner una nueva contraseña.";
+        : "Si el correo está registrado, te llegará un enlace para poner una nueva contraseña.";
     } finally { $("#authForgot").disabled = false; }
   });
   function showNewPassword() {
@@ -1267,7 +1342,7 @@
     $("#appShell").hidden = false;
     const hadCache = loadCache();
     if (hadCache) render();
-    else $("#view").innerHTML = `<div class="empty"><div class="e">⏳</div>Cargando…</div>`;
+    else $("#view").innerHTML = `<div class="empty"><div class="spinner"></div>Cargando…</div>`;
     await refresh(true);
     render();
     // Accesos directos: ?nuevo=gasto | ingreso
@@ -1284,12 +1359,12 @@
   async function init() {
     if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
     if (navigator.storage?.persist) navigator.storage.persist().catch(() => {});
-    if (!sb) { showAuth("⚠️ Falta configurar Supabase en js/config.js"); $("#authSubmit").disabled = true; return; }
+    if (!sb) { showAuth("Falta configurar Supabase en js/config.js"); $("#authSubmit").disabled = true; return; }
     const { data } = await sb.auth.getSession();
     const linkErr = AUTH_HASH.get("error_description");
     if (data.session && recovering) showNewPassword();
     else if (data.session) startApp(data.session.user);
-    else showAuth(linkErr ? "⚠️ El enlace del correo no es válido o ya expiró. Pide uno nuevo." : "");
+    else showAuth(linkErr ? "El enlace del correo no es válido o ya expiró. Pide uno nuevo." : "");
     if (linkErr) history.replaceState(null, "", location.pathname);
     sb.auth.onAuthStateChange((ev, session) => {
       if (ev === "PASSWORD_RECOVERY") { showNewPassword(); return; }

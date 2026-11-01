@@ -2,13 +2,13 @@
 <html lang="es">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, viewport-fit=cover">
   <title>WithCash</title>
   <meta name="description" content="Control de gastos personales, pagos fijos y ahorro.">
-  <meta name="theme-color" content="#0f766e">
+  <meta name="theme-color" content="#000000">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
   <meta name="apple-mobile-web-app-title" content="WithCash">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
@@ -41,23 +41,25 @@
 
   <div id="appShell" hidden>
     <header class="topbar">
-      <button class="month-btn" id="prevMonth" aria-label="Mes anterior">‹</button>
+      <button class="month-btn" id="prevMonth" aria-label="Mes anterior"><svg class="i" aria-hidden="true"><use href="#i-chevL"></use></svg></button>
       <div class="month-title" id="monthTitle">—</div>
-      <button class="month-btn" id="nextMonth" aria-label="Mes siguiente">›</button>
-      <button class="icon-btn" id="openSettings" aria-label="Ajustes">⚙️</button>
+      <button class="month-btn" id="nextMonth" aria-label="Mes siguiente"><svg class="i" aria-hidden="true"><use href="#i-chevR"></use></svg></button>
+      <button class="icon-btn" id="openSettings" aria-label="Ajustes"><svg class="i" aria-hidden="true"><use href="#i-sliders"></use></svg></button>
     </header>
     <div class="offline" id="offlineBar" hidden>Sin conexión · los cambios se guardarán al reconectar</div>
 
     <main id="view" class="view"></main>
 
-    <button class="fab" id="fab" aria-label="Agregar movimiento">+</button>
-
-    <nav class="tabbar" aria-label="Secciones">
-      <button data-tab="inicio" class="active"><span>🏠</span>Inicio</button>
-      <button data-tab="movimientos"><span>🧾</span>Movimientos</button>
-      <button data-tab="fijos"><span>📅</span>Fijos</button>
-      <button data-tab="balance"><span>📊</span>Balance</button>
-    </nav>
+    <div class="dock">
+      <nav class="tabbar" aria-label="Secciones">
+        <button data-tab="inicio" class="active" aria-label="Inicio"><svg class="i" aria-hidden="true"><use href="#i-home"></use></svg><span class="lbl">Inicio</span></button>
+        <button data-tab="movimientos" aria-label="Movimientos"><svg class="i" aria-hidden="true"><use href="#i-receipt"></use></svg><span class="lbl">Movimientos</span></button>
+        <button data-tab="fijos" aria-label="Fijos"><svg class="i" aria-hidden="true"><use href="#i-calendar"></use></svg><span class="lbl">Fijos</span></button>
+        <button data-tab="balance" aria-label="Balance"><svg class="i" aria-hidden="true"><use href="#i-chart"></use></svg><span class="lbl">Balance</span></button>
+      </nav>
+      <button class="fab" id="fab" aria-label="Agregar movimiento"><svg class="i" aria-hidden="true"><use href="#i-plus"></use></svg></button>
+    </div>
+    <div class="back-hint" id="backHint" aria-hidden="true"><svg class="i" aria-hidden="true"><use href="#i-chevL"></use></svg></div>
   </div>
 
   <!-- Agregar / editar movimiento -->
@@ -105,8 +107,8 @@
               <option value="suscripcion">Suscripción</option>
               <option value="deuda">Deuda / préstamo</option>
             </optgroup>
-            <option value="ingreso">💼 Ingreso fijo</option>
-            <option value="presupuesto">🎯 Presupuesto</option>
+            <option value="ingreso">Ingreso fijo</option>
+            <option value="presupuesto">Presupuesto</option>
           </select>
         </label>
         <label class="field narrow"><span>Cada cuándo</span>
@@ -162,10 +164,8 @@
     <form id="itemForm" method="dialog">
       <div class="sheet-handle"></div>
       <h2 id="itemTitle">Cuenta</h2>
-      <div class="row2">
-        <label class="field icon-field"><span>Ícono</span><input id="itemIcon" maxlength="4" required></label>
-        <label class="field"><span>Nombre</span><input id="itemName" maxlength="40" required></label>
-      </div>
+      <label class="field"><span>Nombre</span><input id="itemName" maxlength="40" required></label>
+      <div class="field"><span>Ícono</span><div class="icon-grid" id="itemIcons"></div></div>
       <label class="field" id="itemKindWrap"><span>Tipo</span><select id="itemKind"><option value="gasto">Gasto</option><option value="ingreso">Ingreso</option></select></label>
       <label class="field" id="itemBalanceWrap"><span>Saldo inicial (lo que tiene hoy)</span><input id="itemBalance" inputmode="decimal" placeholder="0"></label>
       <div class="sheet-actions">
@@ -183,7 +183,7 @@
       <h2>Ajustes</h2>
       <p class="hint" id="userEmail"></p>
 
-      <h3>📱 Atajos de iPhone</h3>
+      <h3>Atajos de iPhone</h3>
       <p class="hint">Registra gastos e ingresos en segundos desde el Centro de Control, sin abrir la app.</p>
       <div class="stack">
         <button type="button" class="btn primary" id="openShortcuts">Configurar Atajos</button>
@@ -208,19 +208,19 @@
 
       <h3>Recordatorios en el calendario</h3>
       <p class="hint">Agrega tus pagos fijos al calendario del iPhone: te avisa aunque no abras la app.</p>
-      <button type="button" class="btn block" id="exportIcs">📅 Agregar pagos fijos al calendario</button>
+      <button type="button" class="btn block" id="exportIcs"><svg class="i" aria-hidden="true"><use href="#i-calendar"></use></svg> Agregar pagos fijos al calendario</button>
 
       <h3>Respaldo</h3>
       <div class="stack">
-        <button type="button" class="btn" id="exportCsv">📄 Exportar movimientos del mes (.csv)</button>
-        <button type="button" class="btn" id="exportJson">⬇️ Descargar todo (.json)</button>
+        <button type="button" class="btn" id="exportCsv"><svg class="i" aria-hidden="true"><use href="#i-file"></use></svg> Exportar movimientos del mes (.csv)</button>
+        <button type="button" class="btn" id="exportJson"><svg class="i" aria-hidden="true"><use href="#i-download"></use></svg> Descargar todo (.json)</button>
       </div>
 
       <div class="sheet-actions">
         <button type="button" class="btn ghost danger" id="logout">Cerrar sesión</button>
         <button type="submit" class="btn primary">Guardar</button>
       </div>
-      <p class="version">WithCash v1.0</p>
+      <p class="version">WithCash v1.3</p>
     </form>
   </dialog>
 
@@ -236,6 +236,7 @@
 
   <div class="toast" id="toast" role="status"></div>
 
+  <script src="js/icons.js"></script>
   <script src="js/config.js"></script>
   <script src="js/vendor/supabase.js"></script>
   <script src="js/app.js"></script>
