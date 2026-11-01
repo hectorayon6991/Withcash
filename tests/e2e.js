@@ -171,6 +171,32 @@ process.on("unhandledRejection", (e) => { check("la prueba terminó sin interrup
   // Persistencia local: recargar conserva datos y cola
   await ctx.close();
 
+  // ---------- 19-20. Dos dispositivos sobre los mismos datos ----------
+  {
+    const shared = fixtures();
+    shared.fixed_payments.push(F("fa", "Gimnasio", "suscripcion", 500, { day: 2, category_id: "c7", account_id: "a2", auto: true }));
+    const A1 = await boot(browser, { data: shared }), B1 = await boot(browser, { data: shared });
+    const autoCount = shared.movements.filter((m) => m.fixed_id === "fa").length;
+    check("20. pago automático en dos dispositivos se registra una sola vez", autoCount === 1, String(autoCount));
+    await addEntry(A1.p, { type: "gasto", amount: 123, cat: "c8", acc: "a2", note: "Desde iPhone" });
+    await B1.p.evaluate(() => window.dispatchEvent(new Event("focus")));
+    await B1.p.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+    await B1.p.reload(); await B1.p.waitForSelector("#appShell:not([hidden])"); await B1.p.waitForTimeout(900);
+    await B1.p.click('.tabbar [data-tab="movimientos"]'); await B1.p.waitForTimeout(300);
+    check("19. sincronización entre dispositivos", /Desde iPhone/.test(await txt(B1.p, "#view")));
+    // 21. Restaurar respaldo en el segundo dispositivo
+    const backup = { accounts: [], categories: [], fixed_payments: [], movements: [{ id: "11111111-2222-4333-8444-555555555555", user_id: "otro", type: "gasto", amount: 42, date: "2026-11-10", note: "Del respaldo", category_id: "c8", account_id: "a2", to_account_id: null, source: "app", created_at: "2026-11-10T10:00:00Z" }] };
+    await B1.p.click("#openSettings").catch(() => {});
+    await B1.p.evaluate(() => document.querySelector("#openSettings")?.click());
+    B1.p.once("dialog", (d) => d.accept());
+    await B1.p.setInputFiles("#importJson", { name: "respaldo.json", mimeType: "application/json", buffer: Buffer.from(JSON.stringify(backup)) });
+    await B1.p.waitForTimeout(600);
+    const restored = shared.movements.find((m) => m.note === "Del respaldo");
+    check("21. restaurar respaldo (y el dueño pasa a ser el usuario actual)", !!restored && restored.user_id === U, restored ? restored.user_id : "no llegó");
+    check("19-21 sin errores", !A1.errs.length && !B1.errs.length, [...A1.errs, ...B1.errs].join(" | "));
+    await A1.ctx.close(); await B1.ctx.close();
+  }
+
   // ---------- Tema claro y escritorio ----------
   ({ p, errs, ctx } = await boot(browser, { device: "Desktop Chrome", data: { ...fixtures(), settings: { ...fixtures().settings, theme: "claro" } } }));
   check("25. escritorio sin errores", !errs.length, errs.join(" | "));
