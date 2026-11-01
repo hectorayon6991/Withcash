@@ -556,14 +556,29 @@
     return { assets, debts, net: P(C(assets) - C(debts)), receivable };
   }
   // Lo que falta pagar (comprometido) y cobrar este mes, incluidos atrasados
+  // Compromisos del mes en curso:
+  //   fixed     = pagos fijos sin pagar (los «pagos de tarjeta» de una tarjeta que ya existe como cuenta no se suman: su deuda va aparte)
+  //   cardsDebt = todo lo que se debe hoy en tarjetas
+  //   cardsPre  = la parte de esa deuda que NO está registrada como gasto (lo que ya se debía al dar de alta la tarjeta);
+  //               las compras con tarjeta ya cuentan en Gastos, así que en el balance del mes solo se suma esta parte
+  //   bills     = fixed + cardsPre (lo que se descuenta del balance del mes sin contar nada dos veces)
   function commitments(ym) {
-    let bills = 0, incomes = 0;
-    if (ym !== ymOf(today())) return { bills, incomes };
+    const z = { bills: 0, fixed: 0, cardsDebt: 0, cardsPre: 0, incomes: 0 };
+    if (ym !== ymOf(today())) return z;
+    const cards = activeAccs().filter(isCredit), cardNames = new Set(cards.map((a) => a.name.trim().toLowerCase()));
+    let fixed = 0, incomes = 0;
     for (const f of S.fixed.filter((x) => x.active && !isBudget(x))) {
+      if (f.kind === "tarjeta" && cardNames.has(f.name.trim().toLowerCase())) continue;
       const n = pendingOcc(f).filter((o) => o.due <= dueDate(ym, 31)).length;
-      if (isIncome(f)) incomes += n * C(f.amount); else bills += n * C(f.amount);
+      if (isIncome(f)) incomes += n * C(f.amount); else fixed += n * C(f.amount);
     }
-    return { bills: P(bills), incomes: P(incomes) };
+    let debt = 0, pre = 0;
+    for (const a of cards) {
+      debt += Math.max(0, -WCFin.accountBalanceC(a, S.movements, S.debts || [], S.debtPays || []));
+      pre += Math.max(0, -C(a.initial_balance));
+    }
+    pre = Math.min(pre, debt);
+    return { fixed: P(fixed), cardsDebt: P(debt), cardsPre: P(pre), bills: P(fixed + pre), incomes: P(incomes) };
   }
   const subsTotals = () => { const subs = S.fixed.filter((f) => f.active && f.kind === "suscripcion"); const mc = subs.reduce((s, f) => s + WCFin.perMonthC(f), 0); return { subs, month: P(mc), year: P(mc * 12) }; };
 
@@ -661,10 +676,10 @@
       </div>`;
     // Saldo real: lo comprometido para pagos del mes y lo que queda libre
     const cm = commitments(ym);
-    if (cm.bills || cm.incomes) html += `<div class="split2 thin">
-        <div><span class="k">Comprometido en pagos</span><b class="num neg">${money(cm.bills)}</b></div>
+    if (cm.bills || cm.incomes || cm.cardsDebt) html += `<div class="split2 thin">
+        <div><span class="k">Comprometido en pagos</span><b class="num neg">${money(cm.bills)}</b>${cm.cardsDebt ? `<small class="cm-sub">Pagos fijos ${money(cm.fixed)} · Tarjetas ${money(cm.cardsPre)}</small>` : ""}</div>
         <div><span class="k">Libre después de pagos</span><b class="num ${avail - cm.bills < 0 ? "neg" : ""}">${money(avail - cm.bills)}</b></div>
-      </div>${cm.incomes ? `<p class="hint" style="margin:8px 0 0">${ico("briefcase", "i-sm")} Por recibir este mes: <b class="num pos">${money(cm.incomes)}</b></p>` : ""}`;
+      </div>${cm.cardsDebt > cm.cardsPre ? `<p class="hint" style="margin:8px 0 0">${ico("card", "i-sm")} En tarjetas debes ${money(cm.cardsDebt)} en total; ${money(P(C(cm.cardsDebt) - C(cm.cardsPre)))} ya está en tus gastos del mes.</p>` : ""}${cm.incomes ? `<p class="hint" style="margin:8px 0 0">${ico("briefcase", "i-sm")} Por recibir este mes: <b class="num pos">${money(cm.incomes)}</b></p>` : ""}`;
     if (budget > 0) {
       const pct = t.exp / budget;
       html += `<div class="bar-soft ${pct > 1 ? "over" : ""}"><i style="width:${Math.min(100, pct * 100).toFixed(1)}%"></i></div>
@@ -684,7 +699,7 @@
         ${ind("Saldo en cuentas", money(mp.liquid))}
         ${ind("Ingresos", money(tr.inc), "pos")}
         ${ind("Gastos", money(tr.exp))}
-        ${ind("Comprometido", money(mp.commitments), mp.commitments ? "neg" : "", "pagos por hacer este mes")}
+        ${ind("Comprometido", money(mp.commitments), mp.commitments ? "neg" : "", mp.cardsDebt ? "pagos del mes + tarjetas" : "pagos por hacer este mes")}
         ${ind("Pagos pendientes", String(mp.pendingCount), mp.pendingCount ? "warn-t" : "")}
         ${ind("Deuda total", money(nwI.debts), nwI.debts ? "neg" : "")}
         ${ind("Ahorro acumulado", money(mp.reserved), "pos")}
@@ -1914,9 +1929,10 @@
   function moneyPicture() {
     const liquid = sumP(activeAccs().filter((a) => !isCredit(a) && a.kind !== "inversion"), accountBalance);
     const reserved = reservedTotal(), cm = commitments(ymOf(today()));
-    const r = WCFin.availability({ liquidC: C(liquid), reservedC: C(reserved), commitmentsC: C(cm.bills) });
+    const committedC = C(cm.fixed) + C(cm.cardsDebt);
+    const r = WCFin.availability({ liquidC: C(liquid), reservedC: C(reserved), commitmentsC: committedC });
     const pendingCount = S.fixed.filter((f) => f.active && isBill(f)).reduce((n, f) => n + pendingOcc(f).filter((o) => o.due <= dueDate(ymOf(today()), 31)).length, 0);
-    return { liquid, reserved, commitments: cm.bills, incomes: cm.incomes, available: P(r.available), pendingCount };
+    return { liquid, reserved, commitments: P(committedC), cardsDebt: cm.cardsDebt, incomes: cm.incomes, available: P(r.available), pendingCount };
   }
 
   // ---------- Cuentas ----------

@@ -195,6 +195,10 @@ process.on("unhandledRejection", (e) => { check("la prueba terminó sin interrup
     await T.p.fill("#itemDebt", "1200"); await T.p.click("#itemForm button[type=submit]"); await T.p.waitForTimeout(350);
     const k2 = d.accounts.find((a) => a.id === klar.id);
     check("tarjetas: editar «cuánto debo» ajusta la deuda actual", shown === "1500" && Number(k2.initial_balance) === -700 && d.movements.some((m) => m.note === "Compra Klar"), `mostraba ${shown}, saldo inicial ${k2.initial_balance}`);
+    // Comprometido: Klar debe 1,200 (700 previos + 500 de una compra ya registrada como gasto) y Vexi 2,500 previos
+    await T.p.click('.tabbar [data-tab="inicio"]'); await T.p.waitForTimeout(300);
+    const ini = await txt(T.p, "#view");
+    check("comprometido incluye la deuda de tarjetas sin contar dos veces las compras", /Tarjetas \$3,200\.00/.test(ini) && /debes \$3,700\.00 en total; \$500\.00 ya está en tus gastos/.test(ini), (ini.match(/Comprometido en pagos[^|]{0,160}/) || [""])[0]);
     check("tarjetas sin errores", !T.errs.length, T.errs.join(" | "));
     if (process.env.SHOTS) { await T.p.click("#openMore"); await T.p.waitForTimeout(150); await T.p.click('[data-mod="tarjetas"]'); await T.p.waitForTimeout(300); await T.p.screenshot({ path: process.env.SHOTS + "/tarjetas.png", fullPage: true }); }
     await T.ctx.close();
