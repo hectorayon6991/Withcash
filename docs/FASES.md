@@ -7,15 +7,15 @@ Estado real del proyecto. Se actualiza en cada entrega.
 | Fase | Estado | Notas |
 |---|---|---|
 | 1. Auditoría | ✅ Completa | `docs/AUDITORIA.md` |
-| 2. Base de datos | ⏳ Escrita, **pendiente de aplicar** | `supabase/migrations/0005_modulos_completos.sql`. Supabase pide confirmación del propietario y no hubo respuesta. |
+| 2. Base de datos | ✅ Aplicada | Migración 0005 aplicada por el propietario desde el SQL Editor (1 nov 2026). Verificada: 7 tablas nuevas, funciones, bucket `tickets`, registro cerrado. |
 | 3. Motor financiero, movimientos y cuentas | ✅ Código y pruebas | Cálculos en centavos; movimientos y cuentas completos |
 | 4. Pagos y presupuestos | ✅ Código y pruebas | Reprogramar/saltar necesitan la migración 0005 |
 | 5. Tarjetas, deudas y ahorros | ✅ Código y pruebas | Deudas y ahorros se activan con la migración 0005 |
 | 6. Suscripciones y reportes | ✅ Código y pruebas | |
 | 7. Offline y sincronización | ✅ Código y pruebas | Lotes atómicos con `wc_apply` (migración 0005); con la base anterior usa el envío clásico |
-| 8. Seguridad, configuración y notificaciones | ✅ Código / ⏳ base | Cuenta privada y bitácora dependen de la migración 0005 |
-| 9. Pruebas | ✅ Unitarias y funcionales · ⏳ integración con la base real | La integración contra Supabase (RLS, `wc_apply`, duplicados, registro cerrado) se ejecuta al aplicar la migración |
-| 10. Publicación | ✅ App publicada (GitHub Pages) · ⏳ función `atajo` nueva | La función se despliega junto con la migración |
+| 8. Seguridad, configuración y notificaciones | ✅ Completa | Cuenta privada y bitácora activas |
+| 9. Pruebas | ✅ Unitarias, funcionales e integración | 10/10 pruebas contra la base real (transacción revertida al final) |
+| 10. Publicación | ✅ App (GitHub Pages) y función `atajo` v5 | Función probada contra la base real (listas, resumen, 401 sin llave) |
 
 ## Funcionalidades implementadas (con lógica real y persistencia)
 
@@ -37,7 +37,7 @@ Estado real del proyecto. Se actualiza en cada entrega.
 
 - `npm test`: 12 pruebas unitarias del motor financiero → **12/12**.
 - `npm run test:e2e`: 34 pruebas funcionales en Chromium con Supabase simulado (iPhone 13, Pixel 7 y escritorio; base actualizada y base anterior) → **34/34**. Cubren los casos 1–21 y 23–25 del documento.
-- Pendiente: integración contra la base real (caso 22, permisos RLS; atomicidad de `wc_apply`; índice de duplicados; registro cerrado) — requiere la migración 0005.
+- Integración contra la base real (dentro de una transacción que se revierte): lote atómico de 2 filas, atomicidad ante una operación inválida, sin duplicados de pagos recurrentes, no ve ni borra datos de otro usuario (caso 22), dueño forzado en `wc_apply`, RLS en tablas nuevas, bitácora, anónimo sin acceso a `wc_apply`, registro cerrado a otros correos → **10/10**.
 - Pendiente: confirmación en dispositivos físicos (iPhone, Android, Windows, Mac) por parte del propietario.
 
 ## Errores encontrados y corregidos en esta entrega
@@ -49,7 +49,6 @@ Estado real del proyecto. Se actualiza en cada entrega.
 
 ## Pendientes que dependen del propietario
 
-1. **Aprobar la migración 0005** cuando Supabase muestre la confirmación (después: desplegar la función `atajo` y correr las pruebas de integración).
 2. En Supabase → Authentication: activar *Leaked password protection*.
 3. Borrar el usuario de prueba y la extensión `pg_net` (requiere confirmación).
 4. Probar en sus dispositivos reales.

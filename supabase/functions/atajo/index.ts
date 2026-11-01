@@ -80,6 +80,8 @@ function addDays(d: string, n: number) {
   t.setUTCDate(t.getUTCDate() + n);
   return t.toISOString().slice(0, 10);
 }
+// Dinero en centavos enteros (igual que js/finance.js): se suma en centavos y se divide entre 100 solo al mostrar
+const toC = (v: unknown) => Math.round(Number(v ?? 0) * 100);
 const fmtDate = (d: string) => `${Number(d.slice(8))} ${MESES[Number(d.slice(5, 7)) - 1].slice(0, 3)}`;
 
 type Fixed = {
@@ -134,6 +136,8 @@ function budgetPeriod(f: Fixed, d: string) {
       ? { start: `${ym}-01`, end: `${ym}-15`, label: "esta quincena" }
       : { start: `${ym}-16`, end: dueDate(ym, 31), label: "esta quincena" };
   }
+  if (fr === "anual") return { start: `${d.slice(0, 4)}-01-01`, end: `${d.slice(0, 4)}-12-31`, label: "este año" };
+  if (fr === "personalizado") return { start: f.start_date || d, end: f.end_date || f.start_date || d, label: "en el periodo" };
   return { start: `${ym}-01`, end: dueDate(ym, 31), label: "este mes" };
 }
 
@@ -228,17 +232,17 @@ Deno.serve(async (req) => {
     if (!startMonth || ym <= startMonth) return 0;
     const { data } = await db.from("movements").select("type,amount").eq("user_id", uid)
       .gte("date", `${startMonth}-01`).lt("date", `${ym}-01`);
-    return (data ?? []).reduce((s, m) => s + (m.type === "ingreso" ? Number(m.amount) : m.type === "gasto" ? -Number(m.amount) : 0), 0);
+    return (data ?? []).reduce((s, m) => s + (m.type === "ingreso" ? toC(m.amount) : m.type === "gasto" ? -toC(m.amount) : 0), 0) / 100;
   };
   const budgetText = (f: Fixed, spent: number) => {
-    const p = budgetPeriod(f, today), left = Number(f.amount) - spent;
+    const p = budgetPeriod(f, today), left = (toC(f.amount) - toC(spent)) / 100;
     return left >= 0 ? `${f.name}: quedan ${money(left)} ${p.label}` : `${f.name}: te pasaste ${money(-left)} ${p.label}`;
   };
   const spentIn = async (f: Fixed) => {
     const p = budgetPeriod(f, today);
     const { data } = await db.from("movements").select("amount").eq("user_id", uid).eq("type", "gasto")
       .eq("category_id", f.category_id).gte("date", p.start).lte("date", p.end);
-    return (data ?? []).reduce((s, m) => s + Number(m.amount), 0);
+    return (data ?? []).reduce((s, m) => s + toC(m.amount), 0) / 100;
   };
 
   // ---------- Listas para los menús del Atajo ----------
@@ -286,29 +290,30 @@ Deno.serve(async (req) => {
       // Presupuestos excedidos o casi agotados (≥ 90 %)
       for (const f of budgets) {
         const spent = await spentIn(f);
-        if (spent >= Number(f.amount) * 0.9 && Number(f.amount) > 0) out.push(budgetText(f, spent));
+        if (toC(spent) * 10 >= toC(f.amount) * 9 && toC(f.amount) > 0) out.push(budgetText(f, spent));
       }
       return text(out.join("\n"));
     }
     if (r.startsWith("mes")) {
       const { data: mv } = await db.from("movements").select("type,amount")
         .eq("user_id", uid).gte("date", `${ym}-01`).lte("date", dueDate(ym, 31));
-      let inc = 0, exp = 0;
+      let ic = 0, ec = 0;
       for (const m of mv ?? []) {
-        if (m.type === "ingreso") inc += Number(m.amount);
-        if (m.type === "gasto") exp += Number(m.amount);
+        if (m.type === "ingreso") ic += toC(m.amount);
+        if (m.type === "gasto") ec += toC(m.amount);
       }
+      const inc = ic / 100, exp = ec / 100;
       // Ocurrencias de este mes sin marcar
       const pendOf = (list: Fixed[]) => list.flatMap((f) => occurrences(f, ym).filter((o) => counts(f, o) && !isPaid(f, o.key)).map(() => Number(f.amount)));
       const pend = pendOf(fx.filter((f) => !isIncome(f))), pendInc = pendOf(fx.filter(isIncome));
-      const sum = (a: number[]) => a.reduce((s, v) => s + v, 0);
+      const sum = (a: number[]) => a.reduce((s, v) => s + toC(v), 0) / 100;
       const carry = await carryIn();
       const late = fx.filter((f) => !isIncome(f)).flatMap((f) => pendingOcc(f).filter((o) => o.due < `${ym}-01`).map(() => Number(f.amount)));
       const lines = [
         `Resumen de ${MESES[Number(ym.slice(5)) - 1]}`,
         `Ingresos: ${money(inc)}`, `Gastos: ${money(exp)}`,
         ...(carry ? [`Viene de meses anteriores: ${money(carry)}`] : []),
-        `Disponible: ${money(inc - exp + carry)}`,
+        `Disponible: ${money((ic - ec + toC(carry)) / 100)}`,
         pend.length ? `Pagos fijos pendientes: ${pend.length} (${money(sum(pend))})` : "Pagos fijos del mes al corriente",
       ];
       if (late.length) lines.push(`Atrasados de meses anteriores: ${late.length} (${money(sum(late))})`);
@@ -366,11 +371,12 @@ Deno.serve(async (req) => {
   // Respuesta para mostrar en la notificación del Atajo
   const { data: mv } = await db.from("movements").select("type,amount")
     .eq("user_id", uid).gte("date", `${ym}-01`).lte("date", dueDate(ym, 31));
-  let inc = 0, exp = 0;
+  let ic = 0, ec = 0;
   for (const m of mv ?? []) {
-    if (m.type === "ingreso") inc += Number(m.amount);
-    if (m.type === "gasto") exp += Number(m.amount);
+    if (m.type === "ingreso") ic += toC(m.amount);
+    if (m.type === "gasto") ec += toC(m.amount);
   }
+  const exp = ec / 100;
   const catName = cat.find((c) => c.id === row.category_id)?.name;
   const accName = acc.find((a) => a.id === row.account_id)?.name;
   const label = row.fixed_id ? (row.type === "ingreso" ? "Ingreso fijo registrado" : "Pago registrado") : tipo === "ingreso" ? "Ingreso guardado" : tipo === "transferencia" ? "Transferencia guardada" : "Gasto guardado";
@@ -381,5 +387,5 @@ Deno.serve(async (req) => {
     for (const f of budgets.filter((b) => b.category_id && b.category_id === row.category_id)) extra.push(budgetText(f, await spentIn(f)));
   }
   const carry = await carryIn();
-  return text(`${label}: ${parts}\nEste mes: gastos ${money(exp)} · disponible ${money(inc - exp + carry)}` + (extra.length ? "\n" + extra.join("\n") : ""));
+  return text(`${label}: ${parts}\nEste mes: gastos ${money(exp)} · disponible ${money((ic - ec + toC(carry)) / 100)}` + (extra.length ? "\n" + extra.join("\n") : ""));
 });
