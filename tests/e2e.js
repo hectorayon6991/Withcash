@@ -124,6 +124,18 @@ process.on("unhandledRejection", (e) => { check("la prueba terminó sin interrup
     if (payAlert) { await payAlert.click(); await p.waitForTimeout(300); opened = !!(await p.$("#dynBody [data-a=pay]")); await p.evaluate(() => document.querySelectorAll("dialog[open]").forEach((d) => d.close())); await p.waitForTimeout(150); }
     check("alertas: se pueden tocar y llevan al pago para marcarlo", al.length > 0 && opened, al.join(" | "));
   }
+  // Centro de notificaciones: campana con número, lista que lleva a cada aviso, al verlas se borra el número
+  {
+    const before = await p.evaluate(() => { const b = document.querySelector("#notifBadge"); return b && !b.hidden ? b.textContent : "0"; });
+    await p.click("#openNotif"); await p.waitForTimeout(300);
+    const list = await p.$$eval("#dynBody .notif-list li", (ls) => ls.length);
+    const after = await p.evaluate(() => document.querySelector("#notifBadge").hidden);
+    const payItem = await p.$("#dynBody .notif-list li[data-pay-actions]");
+    let opened = false;
+    if (payItem) { await payItem.click(); await p.waitForTimeout(400); opened = !!(await p.$("#dynBody [data-a=pay]")); }
+    await p.evaluate(() => document.querySelectorAll("dialog[open]").forEach((d) => d.close())); await p.waitForTimeout(150);
+    check("notificaciones: campana con número, lista que lleva al pago y al verlas se borra el número", Number(before) > 0 && list > 0 && after && opened, `antes ${before}, avisos ${list}, abre pago ${opened}`);
+  }
   // Menú inferior con todas las secciones
   {
     const tabs = await p.$$eval(".tabbar [data-tab]", (bs) => bs.map((b) => b.dataset.tab));
@@ -210,7 +222,7 @@ process.on("unhandledRejection", (e) => { check("la prueba terminó sin interrup
   const [dl] = await Promise.all([p.waitForEvent("download"), p.click('[data-export="csv"]')]);
   check("16. exportar CSV", /\.csv$/.test(dl.suggestedFilename()), dl.suggestedFilename());
   // Búsqueda global
-  await p.click("#openSearch"); await p.waitForTimeout(200); await p.fill("#qText", "sueldo"); await p.waitForTimeout(150);
+  await p.click('.tabbar [data-tab="buscar"]'); await p.waitForTimeout(200); await p.fill("#qText", "sueldo"); await p.waitForTimeout(150);
   check("búsqueda global", /Sueldo/.test(await txt(p, "#qRes")));
   await p.keyboard.press("Escape");
   // Sin conexión → reconexión

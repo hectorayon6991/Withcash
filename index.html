@@ -13,7 +13,7 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-  <link rel="stylesheet" href="css/styles.css?v=2.6.1">
+  <link rel="stylesheet" href="css/styles.css?v=2.7.0">
 </head>
 <body>
   <!-- Pantalla de acceso -->
@@ -44,7 +44,7 @@
       <button class="month-btn" id="prevMonth" aria-label="Mes anterior"><svg class="i" aria-hidden="true"><use href="#i-chevL"></use></svg></button>
       <div class="month-title" id="monthTitle">—</div><span class="sync-dot ok" id="syncDot" title="Sincronizado"></span>
       <button class="month-btn" id="nextMonth" aria-label="Mes siguiente"><svg class="i" aria-hidden="true"><use href="#i-chevR"></use></svg></button>
-      <button class="icon-btn" id="openSearch" aria-label="Buscar"><svg class="i" aria-hidden="true"><use href="#i-search"></use></svg></button>
+      <button class="icon-btn notif-btn" id="openNotif" aria-label="Notificaciones"><svg class="i" aria-hidden="true"><use href="#i-bell"></use></svg><span class="nbadge" id="notifBadge" hidden>0</span></button>
       <button class="icon-btn" id="openSettings" aria-label="Configuración" hidden><svg class="i" aria-hidden="true"><use href="#i-sliders"></use></svg></button>
     </header>
     <div class="offline" id="offlineBar" hidden>Sin conexión · los cambios se guardarán al reconectar</div>
@@ -368,11 +368,11 @@
   </div>
   <div id="printArea" class="print-area" aria-hidden="true"></div>
 
-  <script src="js/icons.js?v=2.6.1"></script>
-  <script src="js/finance.js?v=2.6.1"></script>
-  <script src="js/store.js?v=2.6.1"></script>
-  <script src="js/config.js?v=2.6.1"></script>
+  <script src="js/icons.js?v=2.7.0"></script>
+  <script src="js/finance.js?v=2.7.0"></script>
+  <script src="js/store.js?v=2.7.0"></script>
+  <script src="js/config.js?v=2.7.0"></script>
   <script src="js/vendor/supabase.js"></script>
-  <script src="js/app.js?v=2.6.1"></script>
+  <script src="js/app.js?v=2.7.0"></script>
 </body>
 </html>

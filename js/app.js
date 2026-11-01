@@ -797,9 +797,9 @@
   const subsTotals = () => { const subs = S.fixed.filter((f) => f.active && f.kind === "suscripcion"); const mc = subs.reduce((s, f) => s + WCFin.perMonthC(f), 0); return { subs, month: P(mc), year: P(mc * 12) }; };
 
   // ---------- Alertas inteligentes ----------
-  function buildAlerts() {
+  function buildAlerts(any = false) {
     const out = [], t = today(), ym = ymOf(t);
-    if (S.ym !== ym) return out;
+    if (!any && S.ym !== ym) return out;
     const day = Number(t.slice(8)), dim = daysInMonth(ym);
     // Pagos que vencen (hoy, mañana, atrasados)
     for (const r of upcomingList(3).soon) {
@@ -839,6 +839,49 @@
     return out;
   }
   const ALERT_COLOR = { bad: "#ff6b6b", warn: "#ffb36b", good: "#3ddc97", info: "#7aa2ff" };
+
+  // ---------- Centro de notificaciones ----------
+  // Junta las alertas del mes actual (pagos, ingresos, tarjetas, presupuestos, metas y cambios sin enviar).
+  // Cada aviso tiene una llave; al abrir el centro se marcan como vistos y el número del ícono de la app se borra.
+  const plain = (h) => String(h).replace(/<[^>]+>/g, "");
+  function notifItems() {
+    const items = buildAlerts(true).filter((a) => a.icon !== "trendUp" && a.icon !== "trendDown" || a.lvl === "bad");
+    for (const g of (S.goals || []).filter((x) => x.status === "activa" && x.target_date)) {
+      const d = daysBetween(today(), g.target_date);
+      if (d >= 0 && d <= 7) items.push({ go: `data-goal="${g.id}"`, lvl: "info", icon: "piggy", txt: `Meta <b>${esc(g.name)}</b>: faltan ${d} día${d === 1 ? "" : "s"}` });
+    }
+    const st = S.user ? syncState() : { err: 0 };
+    if (st.err) items.unshift({ go: "data-sync-open", lvl: "bad", icon: "alert", txt: `<b>${st.err} cambio(s)</b> no se pudieron enviar · toca para revisar` });
+    return items.map((a) => ({ ...a, key: `${today()}|${plain(a.txt).replace(/\$[\d,.]+/g, "")}` }));
+  }
+  const seenKey = () => `wc_seen_${S.user?.id}`;
+  const unseen = (items = notifItems()) => { const seen = ls.get(seenKey(), {}); return items.filter((a) => !seen[a.key]); };
+  function markSeen(items) {
+    const seen = ls.get(seenKey(), {}), keep = {};
+    for (const a of items) keep[a.key] = 1;                         // solo se guardan las de hoy que siguen activas
+    for (const k of Object.keys(seen)) if (k.startsWith(today())) keep[k] = 1;
+    ls.set(seenKey(), keep);
+  }
+  function paintBell() {
+    const b = $("#notifBadge"); if (!b || !S.user) return;
+    const n = unseen().length;
+    b.textContent = n > 9 ? "9+" : String(n); b.hidden = !n;
+  }
+  function openNotifCenter() {
+    const items = notifItems(), fresh = new Set(unseen(items).map((a) => a.key));
+    openDyn(`<h2>Notificaciones</h2>
+      ${items.length ? `<ul class="alerts notif-list">${items.map((a) => `<li class="${a.go ? "tap" : ""} ${fresh.has(a.key) ? "new" : ""}" ${a.go || ""}>${tile(a.icon, ALERT_COLOR[a.lvl], "sm")}<span>${a.txt}</span>${a.go ? ico("chevR", "i-sm a-go") : ""}</li>`).join("")}</ul>`
+        : `<div class="empty"><div class="e">${ico("bell")}</div>No tienes notificaciones. Aquí aparecerán tus pagos por vencer, ingresos por recibir, tarjetas y presupuestos.</div>`}
+      <div class="sheet-actions"><button type="button" class="btn ghost" data-close>Cerrar</button></div>`, (root) => {
+      root.addEventListener("click", (e) => {
+        const t = e.target.closest("li.tap"); if (!t) return;
+        closeDyn();
+        if (t.hasAttribute("data-sync-open")) { openSettings(); setTimeout(() => $("#syncBox")?.scrollIntoView({ block: "center" }), 250); return; }
+        setTimeout(() => viewAction(t), 60);
+      });
+    });
+    markSeen(items); paintBell(); updateBadge();
+  }
 
   // ---------- Colores por categoría (cada gasto con su color) ----------
   const PALETTE = ["#5eead4", "#7aa2ff", "#f0a6ea", "#ffb36b", "#b69cff", "#67d4ff", "#ffd36b", "#ff8fa3", "#9be37a", "#ff9d6b"];
@@ -2938,9 +2981,9 @@
   ["gesturestart", "gesturechange", "gestureend"].forEach((ev) => document.addEventListener(ev, (e) => e.preventDefault(), { passive: false }));
   document.addEventListener("touchmove", (e) => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
   // (el doble toque ya no hace zoom gracias a touch-action en el CSS)
-  $("#view").addEventListener("click", (e) => {
-    const t = e.target.closest("[data-mov],[data-mov-open],[data-pay],[data-goto],[data-new-fixed],[data-edit-fixed],[data-filter],[data-catgo],[data-credit],[data-export],[data-acc-detail],[data-new-acc],[data-pay-actions],[data-new-budget],[data-new-goal],[data-goal],[data-new-debt],[data-debt],[data-new-sub],[data-period],[data-movacc],[data-clear-acc],[data-new-card],[data-cards-from-pays],[data-plan],[data-plan-new],[data-card-go],[data-budget-go]");
-    if (!t) return;
+  const VIEW_ACTIONS = "[data-mov],[data-mov-open],[data-pay],[data-goto],[data-new-fixed],[data-edit-fixed],[data-filter],[data-catgo],[data-credit],[data-export],[data-acc-detail],[data-new-acc],[data-pay-actions],[data-new-budget],[data-new-goal],[data-goal],[data-new-debt],[data-debt],[data-new-sub],[data-period],[data-movacc],[data-clear-acc],[data-new-card],[data-cards-from-pays],[data-plan],[data-plan-new],[data-card-go],[data-budget-go]";
+  $("#view").addEventListener("click", (e) => { const t = e.target.closest(VIEW_ACTIONS); if (t) viewAction(t); });
+  function viewAction(t) {
     if (t.dataset.pay) payFixed(t.dataset.pay, t.dataset.month);
     else if (t.dataset.movOpen) openEntry({ id: t.dataset.movOpen });
     else if (t.dataset.mov) openEntry({ id: t.dataset.mov });
@@ -2971,13 +3014,14 @@
     else if (t.hasAttribute("data-new-fixed")) openFixed();
     else if (t.dataset.editFixed) openFixed(t.dataset.editFixed);
     else if (t.dataset.filter) { S.movFilter = t.dataset.filter; render(); }
-  });
+  }
   $("#fab").addEventListener("click", () => openEntry());
   $("#prevMonth").addEventListener("click", () => { S.ym = addMonths(S.ym, -1); S.movFilter = "todos"; render(); });
   $("#nextMonth").addEventListener("click", () => { S.ym = addMonths(S.ym, 1); S.movFilter = "todos"; render(); });
   $("#monthTitle").addEventListener("click", () => { S.ym = ymOf(today()); render(); });
   $("#openSettings").addEventListener("click", openSettings);
-  $("#openSearch").addEventListener("click", openSearch);
+  $("#openSearch")?.addEventListener("click", openSearch);
+  $("#openNotif").addEventListener("click", openNotifCenter);
   // Búsqueda dentro de Movimientos: se aplica al escribir (sin perder el foco)
   let mqTimer = 0;
   $("#view").addEventListener("input", (e) => {
@@ -2999,8 +3043,9 @@
   document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && S.user) refresh(); });
 
   function updateBadge() {
+    paintBell();
     if (!("setAppBadge" in navigator)) return;
-    const n = upcomingList(0).soon.filter((r) => !isIncome(r.f) && r.days <= r.f.remind_days).length;
+    const n = S.user ? unseen().length : 0;                         // avisos sin ver del centro de notificaciones
     (n ? navigator.setAppBadge(n) : navigator.clearAppBadge()).catch(() => {});
   }
 

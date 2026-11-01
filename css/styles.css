@@ -230,7 +230,7 @@ html.masked .eye .e-hide { display: grid; }
   max-height: 92dvh; overscroll-behavior: contain;
 }
 .sheet::backdrop { background: rgba(0,0,0,.7); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); }
-.sheet form { padding: 8px 16px calc(16px + env(safe-area-inset-bottom)); }
+.sheet form, .sheet .dyn { padding: 8px 16px calc(16px + env(safe-area-inset-bottom)); }
 .sheet h2 { margin: 6px 0 12px; font-size: 20px; }
 .sheet h3 { margin: 18px 0 6px; font-size: 15px; }
 .sheet-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
@@ -624,3 +624,10 @@ html.masked .eye .e-hide { display: grid; }
 .alerts .a-go { flex: none; color: var(--muted); }
 .flash { animation: wcFlash 1.6s ease; }
 @keyframes wcFlash { 0%, 60% { box-shadow: 0 0 0 2px var(--accent); } 100% { box-shadow: 0 0 0 0 transparent; } }
+/* Centro de notificaciones */
+.notif-btn { position: relative; }
+.nbadge { position: absolute; top: 2px; right: 2px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: var(--bad); color: #fff; font-size: 11px; font-weight: 700; line-height: 18px; text-align: center; box-shadow: 0 0 0 2px var(--bg); }
+.notif-list { margin-top: 6px; }
+.notif-list li { padding: 8px 6px; margin: 0 -6px; }
+.notif-list li.new > span { font-weight: 600; }
+.notif-list li.new::after { content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); order: 3; }
