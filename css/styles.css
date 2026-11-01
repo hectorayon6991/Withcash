@@ -233,7 +233,6 @@ html.masked .eye .e-hide { display: grid; }
 .sheet form { padding: 8px 16px calc(16px + env(safe-area-inset-bottom)); }
 .sheet h2 { margin: 6px 0 12px; font-size: 20px; }
 .sheet h3 { margin: 18px 0 6px; font-size: 15px; }
-.sheet-handle { width: 40px; height: 5px; border-radius: 3px; background: var(--surface-3); margin: 6px auto 12px; }
 .sheet-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
 .sheet-actions .danger { margin-right: auto; }
 @media (min-width: 700px) { .sheet { margin: auto; border-radius: 22px; } }
@@ -618,3 +617,5 @@ html.masked .eye .e-hide { display: grid; }
 .plan-add { justify-self: start; }
 .c-title:has(.eye) { display: inline-flex; align-items: center; white-space: nowrap; }
 .big .priv .pm { font-size: .8em; letter-spacing: .02em; }
+.greet { margin: 2px 4px 12px; font-size: 20px; color: var(--text-2); }
+.greet b { color: var(--text); font-weight: 700; }

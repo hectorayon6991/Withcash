@@ -91,7 +91,17 @@ process.on("unhandledRejection", (e) => { check("la prueba terminó sin interrup
     check("privacidad: montos ocultos al abrir y el ojito los muestra/oculta", server.maskedAtStart && /\$•••/.test(hid) && !/\$•••/.test(shown) && /\$[\d,]+\.\d\d/.test(shown) && again, hid.slice(0, 90) + " → " + shown.slice(0, 90));
     await p.evaluate(() => document.documentElement.classList.remove("masked"));
   }
-  // Menú inferior con todas las secciones
+  // Tu nombre en Configuración → saludo en Inicio; sin barrita gris arriba de las ventanas
+  {
+    await p.click('.tabbar [data-tab="config"]'); await p.waitForTimeout(300);
+    const noAppName = !(await p.$("#setAppName")), handles = await p.$$eval(".sheet-handle", (x) => x.length);
+    await p.fill("#setUserName", "Héctor Ayón");
+    await p.evaluate(() => document.querySelector("#settingsForm").requestSubmit()); await p.waitForTimeout(400);
+    await p.evaluate(() => document.querySelectorAll("dialog[open]").forEach((d) => d.close())); await p.waitForTimeout(150);
+    const g = await p.evaluate(() => document.querySelector(".greet")?.innerText || "");
+    check("configuración: «¿Cuál es tu nombre?» en lugar del nombre de la app, saludo en Inicio y sin barrita", noAppName && handles === 0 && /Héctor/.test(g) && !/Ayón/.test(g), g + " / barritas " + handles);
+  }
+    // Menú inferior con todas las secciones
   {
     const tabs = await p.$$eval(".tabbar [data-tab]", (bs) => bs.map((b) => b.dataset.tab));
     await p.click('.tabbar [data-tab="suscripciones"]'); await p.waitForTimeout(250);

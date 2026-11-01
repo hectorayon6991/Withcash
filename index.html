@@ -74,7 +74,7 @@
   <!-- Agregar / editar movimiento -->
   <dialog id="entrySheet" class="sheet">
     <form id="entryForm" method="dialog">
-      <div class="sheet-handle"></div>
+      
       <div class="seg three" id="entryType">
         <button type="button" data-type="gasto" class="active">Gasto</button>
         <button type="button" data-type="ingreso">Ingreso</button>
@@ -123,7 +123,7 @@
   <!-- Agregar / editar pago fijo -->
   <dialog id="fixedSheet" class="sheet">
     <form id="fixedForm" method="dialog">
-      <div class="sheet-handle"></div>
+      
       <h2 id="fixedTitle">Nuevo fijo</h2>
       <div class="chips small" id="fixedTemplates"></div>
       <label class="field"><span>Nombre</span><input id="fixedName" maxlength="40" required placeholder="Ej. Tarjeta BBVA"></label>
@@ -206,7 +206,7 @@
   <!-- Cuenta / categoría -->
   <dialog id="itemSheet" class="sheet">
     <form id="itemForm" method="dialog">
-      <div class="sheet-handle"></div>
+      
       <h2 id="itemTitle">Cuenta</h2>
       <label class="field"><span>Nombre</span><input id="itemName" maxlength="40" required></label>
       <div class="field"><span>Ícono</span><div class="icon-grid" id="itemIcons"></div></div>
@@ -258,7 +258,7 @@
   <!-- Ajustes -->
   <dialog id="settingsSheet" class="sheet tall">
     <form id="settingsForm" method="dialog">
-      <div class="sheet-handle"></div>
+      
       <h2>Ajustes</h2>
       <p class="hint" id="userEmail"></p>
 
@@ -271,7 +271,7 @@
       <h3>Apariencia</h3>
       <div class="seg three" id="setTheme"><button type="button" data-theme="oscuro">Oscuro</button><button type="button" data-theme="claro">Claro</button><button type="button" data-theme="sistema">Sistema</button></div>
       <div class="row2" style="margin-top:10px">
-        <label class="field"><span>Nombre de la app</span><input id="setAppName" maxlength="30" placeholder="WithCash"></label>
+        <label class="field"><span>¿Cuál es tu nombre?</span><input id="setUserName" maxlength="40" autocomplete="given-name" placeholder="Tu nombre"></label>
       </div>
       <div class="row2">
         <label class="field"><span>Formato de fecha</span><select id="setDateFmt"><option value="dd/mm/aaaa">dd/mm/aaaa</option><option value="aaaa-mm-dd">aaaa-mm-dd</option><option value="mm/dd/aaaa">mm/dd/aaaa</option></select></label>
@@ -339,7 +339,7 @@
   <!-- Atajos -->
   <dialog id="shortcutsSheet" class="sheet tall">
     <form method="dialog" class="guide">
-      <div class="sheet-handle"></div>
+      
       <h2>Atajos de iPhone</h2>
       <div id="shortcutsBody"></div>
       <div class="sheet-actions"><button type="button" class="btn primary" data-close>Listo</button></div>
