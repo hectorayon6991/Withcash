@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>WithCash</title>
+  <meta name="description" content="Control de gastos personales, pagos fijos y ahorro.">
+  <meta name="theme-color" content="#0f766e">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="WithCash">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <!-- Pantalla de acceso -->
+  <section id="authScreen" class="auth" hidden>
+    <div class="auth-box">
+      <img src="icons/icon.svg" alt="" width="72" height="72">
+      <h1>WithCash</h1>
+      <p class="hint">Tus gastos, pagos fijos y ahorro en un solo lugar.</p>
+      <form id="authForm">
+        <label class="field"><span>Correo</span><input id="authEmail" type="email" autocomplete="email" required></label>
+        <label class="field"><span>Contraseña</span><input id="authPass" type="password" autocomplete="current-password" minlength="6" required></label>
+        <button class="btn primary block" type="submit" id="authSubmit">Entrar</button>
+        <button class="btn ghost block" type="button" id="authToggle">¿Primera vez? Crear cuenta</button>
+        <p class="hint center" id="authMsg"></p>
+      </form>
+    </div>
+  </section>
+
+  <div id="appShell" hidden>
+    <header class="topbar">
+      <button class="month-btn" id="prevMonth" aria-label="Mes anterior">‹</button>
+      <div class="month-title" id="monthTitle">—</div>
+      <button class="month-btn" id="nextMonth" aria-label="Mes siguiente">›</button>
+      <button class="icon-btn" id="openSettings" aria-label="Ajustes">⚙️</button>
+    </header>
+    <div class="offline" id="offlineBar" hidden>Sin conexión · los cambios se guardarán al reconectar</div>
+
+    <main id="view" class="view"></main>
+
+    <button class="fab" id="fab" aria-label="Agregar movimiento">+</button>
+
+    <nav class="tabbar" aria-label="Secciones">
+      <button data-tab="inicio" class="active"><span>🏠</span>Inicio</button>
+      <button data-tab="movimientos"><span>🧾</span>Movimientos</button>
+      <button data-tab="fijos"><span>📅</span>Fijos</button>
+      <button data-tab="balance"><span>📊</span>Balance</button>
+    </nav>
+  </div>
+
+  <!-- Agregar / editar movimiento -->
+  <dialog id="entrySheet" class="sheet">
+    <form id="entryForm" method="dialog">
+      <div class="sheet-handle"></div>
+      <div class="seg three" id="entryType">
+        <button type="button" data-type="gasto" class="active">Gasto</button>
+        <button type="button" data-type="ingreso">Ingreso</button>
+        <button type="button" data-type="transferencia">Transferir</button>
+      </div>
+      <label class="amount-wrap">
+        <span class="cur">$</span>
+        <input id="entryAmount" inputmode="decimal" autocomplete="off" placeholder="0" required>
+      </label>
+      <div class="chips" id="catChips"></div>
+      <label class="field"><span id="accLabel">Cuenta</span><select id="entryAccount"></select></label>
+      <label class="field" id="toAccWrap" hidden><span>Hacia la cuenta</span><select id="entryToAccount"></select></label>
+      <div class="row2">
+        <label class="field"><span>Nota</span><input id="entryNote" maxlength="120" placeholder="Ej. tacos, súper, gasolina"></label>
+        <label class="field narrow"><span>Fecha</span><input id="entryDate" type="date" required></label>
+      </div>
+      <p class="hint" id="entryFixedHint" hidden></p>
+      <div class="sheet-actions">
+        <button type="button" class="btn ghost danger" id="entryDelete" hidden>Eliminar</button>
+        <button type="button" class="btn ghost" data-close>Cancelar</button>
+        <button type="submit" class="btn primary">Guardar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Agregar / editar pago fijo -->
+  <dialog id="fixedSheet" class="sheet">
+    <form id="fixedForm" method="dialog">
+      <div class="sheet-handle"></div>
+      <h2 id="fixedTitle">Nuevo pago fijo</h2>
+      <div class="chips small" id="fixedTemplates"></div>
+      <label class="field"><span>Nombre</span><input id="fixedName" maxlength="40" required placeholder="Ej. Tarjeta BBVA"></label>
+      <div class="row2">
+        <label class="field"><span>Tipo</span>
+          <select id="fixedKind">
+            <option value="servicio">Servicio / colegio</option>
+            <option value="tarjeta">Tarjeta de crédito</option>
+            <option value="suscripcion">Suscripción</option>
+            <option value="deuda">Deuda / préstamo</option>
+          </select>
+        </label>
+        <label class="field narrow"><span>Día de pago</span><input id="fixedDay" type="number" inputmode="numeric" min="1" max="31" required placeholder="15"></label>
+      </div>
+      <div class="row2">
+        <label class="field"><span>Monto aprox.</span><input id="fixedAmount" inputmode="decimal" placeholder="0" required></label>
+        <label class="field narrow"><span>Avisar</span>
+          <select id="fixedRemind">
+            <option value="0">El mismo día</option>
+            <option value="1">1 día antes</option>
+            <option value="3" selected>3 días antes</option>
+            <option value="5">5 días antes</option>
+            <option value="7">7 días antes</option>
+          </select>
+        </label>
+      </div>
+      <div class="row2" id="debtFields" hidden>
+        <label class="field"><span>Total de cuotas</span><input id="fixedInstallments" type="number" inputmode="numeric" min="1" placeholder="Ej. 24"></label>
+        <label class="field narrow"><span>Ya pagadas</span><input id="fixedPaidBefore" type="number" inputmode="numeric" min="0" placeholder="0"></label>
+      </div>
+      <div class="row2">
+        <label class="field"><span>Categoría</span><select id="fixedCat"></select></label>
+        <label class="field narrow"><span>Se paga con</span><select id="fixedAcc"></select></label>
+      </div>
+      <div class="sheet-actions">
+        <button type="button" class="btn ghost danger" id="fixedDelete" hidden>Eliminar</button>
+        <button type="button" class="btn ghost" data-close>Cancelar</button>
+        <button type="submit" class="btn primary">Guardar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Cuenta / categoría -->
+  <dialog id="itemSheet" class="sheet">
+    <form id="itemForm" method="dialog">
+      <div class="sheet-handle"></div>
+      <h2 id="itemTitle">Cuenta</h2>
+      <div class="row2">
+        <label class="field icon-field"><span>Ícono</span><input id="itemIcon" maxlength="4" required></label>
+        <label class="field"><span>Nombre</span><input id="itemName" maxlength="40" required></label>
+      </div>
+      <label class="field" id="itemKindWrap"><span>Tipo</span><select id="itemKind"><option value="gasto">Gasto</option><option value="ingreso">Ingreso</option></select></label>
+      <label class="field" id="itemBalanceWrap"><span>Saldo inicial (lo que tiene hoy)</span><input id="itemBalance" inputmode="decimal" placeholder="0"></label>
+      <div class="sheet-actions">
+        <button type="button" class="btn ghost danger" id="itemDelete" hidden>Eliminar</button>
+        <button type="button" class="btn ghost" data-close>Cancelar</button>
+        <button type="submit" class="btn primary">Guardar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Ajustes -->
+  <dialog id="settingsSheet" class="sheet tall">
+    <form id="settingsForm" method="dialog">
+      <div class="sheet-handle"></div>
+      <h2>Ajustes</h2>
+      <p class="hint" id="userEmail"></p>
+
+      <h3>📱 Atajos de iPhone</h3>
+      <p class="hint">Registra gastos e ingresos en segundos desde el Centro de Control, sin abrir la app.</p>
+      <div class="stack">
+        <button type="button" class="btn primary" id="openShortcuts">Configurar Atajos</button>
+      </div>
+
+      <h3>Presupuesto</h3>
+      <div class="row2">
+        <label class="field"><span>Gastos máx. al mes</span><input id="setBudget" inputmode="decimal" placeholder="Opcional"></label>
+        <label class="field"><span>Meta de ahorro al mes</span><input id="setGoal" inputmode="decimal" placeholder="Opcional"></label>
+      </div>
+      <label class="field"><span>Moneda</span><select id="setCurrency"></select></label>
+
+      <h3 class="h-row">Cuentas <button type="button" class="link" id="addAccount">+ Agregar</button></h3>
+      <ul class="list" id="accountsList"></ul>
+
+      <h3 class="h-row">Categorías <button type="button" class="link" id="addCategory">+ Agregar</button></h3>
+      <div class="chips small" id="categoriesList"></div>
+
+      <h3>Recordatorios en el calendario</h3>
+      <p class="hint">Agrega tus pagos fijos al calendario del iPhone: te avisa aunque no abras la app.</p>
+      <button type="button" class="btn block" id="exportIcs">📅 Agregar pagos fijos al calendario</button>
+
+      <h3>Respaldo</h3>
+      <div class="stack">
+        <button type="button" class="btn" id="exportCsv">📄 Exportar movimientos del mes (.csv)</button>
+        <button type="button" class="btn" id="exportJson">⬇️ Descargar todo (.json)</button>
+      </div>
+
+      <div class="sheet-actions">
+        <button type="button" class="btn ghost danger" id="logout">Cerrar sesión</button>
+        <button type="submit" class="btn primary">Guardar</button>
+      </div>
+      <p class="version">WithCash v1.0</p>
+    </form>
+  </dialog>
+
+  <!-- Atajos -->
+  <dialog id="shortcutsSheet" class="sheet tall">
+    <form method="dialog" class="guide">
+      <div class="sheet-handle"></div>
+      <h2>Atajos de iPhone</h2>
+      <div id="shortcutsBody"></div>
+      <div class="sheet-actions"><button type="button" class="btn primary" data-close>Listo</button></div>
+    </form>
+  </dialog>
+
+  <div class="toast" id="toast" role="status"></div>
+
+  <script src="js/config.js"></script>
+  <script src="js/vendor/supabase.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
