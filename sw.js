@@ -1,5 +1,5 @@
 // WithCash service worker: la app funciona sin conexión (los datos se sincronizan con Supabase).
-const VERSION = "wc-v2.5.0";
+const VERSION = "wc-v2.5.1";
 const SHELL = [
   "./", "index.html", "css/styles.css", "js/app.js", "js/config.js", "js/vendor/supabase.js",
   "js/icons.js", "js/finance.js", "js/store.js", "manifest.webmanifest", "icons/icon.svg", "icons/icon-192.png", "icons/apple-touch-icon.png",
@@ -20,7 +20,7 @@ self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== "GET" || url.origin !== location.origin) return;
   e.respondWith(
-    fetch(e.request)
+    fetch(e.request, { cache: "no-cache" })   // revalida siempre: nunca mezcla archivos de versiones distintas
       .then((res) => {
         if (res.ok) { const copy = res.clone(); caches.open(VERSION).then((c) => c.put(e.request, copy)); }
         return res;

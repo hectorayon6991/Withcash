@@ -617,5 +617,3 @@ html.masked .eye .e-hide { display: grid; }
 .plan-add { justify-self: start; }
 .c-title:has(.eye) { display: inline-flex; align-items: center; white-space: nowrap; }
 .big .priv .pm { font-size: .8em; letter-spacing: .02em; }
-.greet { margin: 2px 4px 12px; font-size: 20px; color: var(--text-2); }
-.greet b { color: var(--text); font-weight: 700; }

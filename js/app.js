@@ -730,9 +730,7 @@
     // Indicadores principales (periodo elegido)
     const pr = periodRange(), tr = totalsRange(pr.from, pr.to), mp = moneyPicture(), nwI = netWorth();
     const ind = (k, v, cls = "", sub = "") => `<div class="ind"><span>${k}</span><b class="num ${cls}">${v}</b>${sub ? `<small>${sub}</small>` : ""}</div>`;
-    const nm = userName().split(/\s+/)[0];
-    const hr = new Date().getHours(), saludo = hr < 12 ? "Buenos días" : hr < 19 ? "Buenas tardes" : "Buenas noches";
-    html = (nm ? `<p class="greet">${saludo}, <b>${esc(nm)}</b></p>` : "") + periodChips() + html + `<section class="card"><div class="c-head"><span class="c-title">Resumen ${eyeBtn()}</span>${pill(pr.label, "#a1a1a8", "calendar")}</div>
+    html = periodChips() + html + `<section class="card"><div class="c-head"><span class="c-title">Resumen ${eyeBtn()}</span>${pill(pr.label, "#a1a1a8", "calendar")}</div>
       <div class="ind-grid">
         ${ind("Disponible real", pm(mp.available), mp.available < 0 ? "neg" : "pos", "saldo − reservado − compromisos")}
         ${ind("Saldo en cuentas", pm(mp.liquid))}
@@ -1676,7 +1674,7 @@
     syncLockSettings();
     const st = S.settings;
     $$("#setTheme button").forEach((b) => b.classList.toggle("active", b.dataset.theme === (st.theme || "oscuro")));
-    $("#setUserName").value = userName();
+    if ($("#setUserName")) $("#setUserName").value = userName();
     $("#setDateFmt").value = st.date_format || "dd/mm/aaaa";
     $("#setTimeFmt").value = st.time_format || "24h";
     $("#setAutoLock").value = String(st.auto_lock_minutes ?? 1);
@@ -1709,12 +1707,11 @@
     if (name === userName()) return;
     ls.set(`wc_name_${S.user.id}`, name);
     S.user = { ...S.user, user_metadata: { ...(S.user.user_metadata || {}), full_name: name } };
-    render();
     try { await sb.auth.updateUser({ data: { full_name: name } }); } catch { /* se queda en el dispositivo; se reintenta al guardar de nuevo */ }
   }
   $("#settingsForm").addEventListener("submit", (e) => {
     e.preventDefault();
-    saveUserName($("#setUserName").value.trim().slice(0, 40));
+    if ($("#setUserName")) saveUserName($("#setUserName").value.trim().slice(0, 40));
     const b = parseAmount($("#setBudget").value), g = parseAmount($("#setGoal").value);
     mutate({ table: "settings", op: "upsert", row: {
       user_id: S.user.id, currency: $("#setCurrency").value, start_month: $("#setStartMonth").value || null,

@@ -98,8 +98,10 @@ process.on("unhandledRejection", (e) => { check("la prueba terminó sin interrup
     await p.fill("#setUserName", "Héctor Ayón");
     await p.evaluate(() => document.querySelector("#settingsForm").requestSubmit()); await p.waitForTimeout(400);
     await p.evaluate(() => document.querySelectorAll("dialog[open]").forEach((d) => d.close())); await p.waitForTimeout(150);
-    const g = await p.evaluate(() => document.querySelector(".greet")?.innerText || "");
-    check("configuración: «¿Cuál es tu nombre?» en lugar del nombre de la app, saludo en Inicio y sin barrita", noAppName && handles === 0 && /Héctor/.test(g) && !/Ayón/.test(g), g + " / barritas " + handles);
+    await p.click('.tabbar [data-tab="config"]'); await p.waitForTimeout(300);
+    const kept = await p.inputValue("#setUserName"), opened = await p.evaluate(() => document.querySelector("#settingsSheet")?.open ?? !!document.querySelector("dialog[open] #setUserName"));
+    await p.evaluate(() => document.querySelectorAll("dialog[open]").forEach((d) => d.close())); await p.waitForTimeout(150);
+    check("configuración abre, guarda «¿Cuál es tu nombre?», sin saludo ni barrita", noAppName && handles === 0 && kept === "Héctor Ayón" && opened && !(await p.$(".greet")), `${kept} / barritas ${handles}`);
   }
     // Menú inferior con todas las secciones
   {

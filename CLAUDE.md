@@ -8,7 +8,7 @@ https://hectorayon6991.github.io/Withcash/
 - Migraciones 0001–0005 aplicadas (la 0005 la aplicó el propietario desde el SQL Editor). La 0006 (`card_plans`, compras a meses) también la aplicó el propietario (verificada); sin ella `S.dbv = 5` y la app oculta lo de meses. Edge Function `atajo` desplegada con **verify_jwt = false**
   (se autentica con la llave personal `?k=`, cuyo hash SHA-256 está en `api_keys`).
 - `js/config.js` ya tiene la URL y la clave publicable. Site URL configurada a la URL de GitHub Pages.
-- Subir la versión de caché en `sw.js` (`VERSION`) cada vez que cambien los archivos de la app.
+- Subir la versión de caché en `sw.js` (`VERSION`) y el `?v=` de los `<script>`/CSS en `index.html` cada vez que cambien los archivos de la app (evita que el teléfono mezcle versiones).
 - Si se cambia `supabase/functions/atajo/index.ts`, volver a desplegarla (verify_jwt = false).
 - La red de las sesiones en la nube bloquea `supabase.co`: para probar la función, usar `pg_net`
   temporalmente desde `execute_sql` y luego quitarlo.
@@ -22,7 +22,7 @@ https://hectorayon6991.github.io/Withcash/
 - `js/finance.js`: motor financiero en CENTAVOS ENTEROS (saldos, totales, recurrencias, presupuestos, deudas, metas). Úsalo para cualquier suma de dinero; no sumes `Number(amount)` directamente.
 - `js/store.js`: IndexedDB (caché y cola). La cola (`OUTBOX` en app.js) guarda entradas con varias operaciones que se envían juntas a la función `wc_apply` (lote atómico); una entrada solo se borra cuando el servidor la confirma. Si la base no tiene la migración 0005 (`S.dbv = 4`) la app usa el envío anterior y deja en espera las tablas nuevas.
 - Módulos: todas las secciones están en la barra inferior (`.tabbar`, se desliza de lado y se retrae al bajar con `body.dock-mini`): Inicio, Movimientos, Pagos (`viewFijos`), Reportes (`viewBalance`), Tarjetas, Cuentas, Presupuestos, Ahorros, Deudas, Suscripciones, Buscar y Ajustes. El + flotante va arriba de la barra, a la derecha.
-- Tu nombre (Ajustes → «¿Cuál es tu nombre?») se guarda en `user_metadata.full_name` de Supabase Auth (y en el dispositivo) y saluda en Inicio. Las ventanas no llevan barrita gris arriba.
+- Tu nombre (Ajustes → «¿Cuál es tu nombre?») se guarda en `user_metadata.full_name` de Supabase Auth (y en el dispositivo). Las ventanas no llevan barrita gris arriba.
 - Privacidad: los montos de dinero propio (no deudas ni gastos) se pintan con `pm(n)` y se ocultan con `html.masked`; el ojito (`eyeBtn()`, `[data-eye]`) los muestra/oculta y se vuelven a ocultar al abrir o regresar a la app. Formularios de módulos en la ventana genérica `openDyn`.
 - `js/app.js`: toda la lógica (estado, caché local + cola sin conexión, vistas Inicio/Movimientos/Fijos/Balance, ajustes, guía de Atajos).
 - Tablas: settings, accounts, categories, fixed_payments, movements, api_keys (todas con RLS por `user_id`).
