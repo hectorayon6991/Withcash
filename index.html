@@ -27,7 +27,14 @@
         <label class="field"><span>Contraseña</span><input id="authPass" type="password" autocomplete="current-password" minlength="6" required></label>
         <button class="btn primary block" type="submit" id="authSubmit">Entrar</button>
         <button class="btn ghost block" type="button" id="authToggle">¿Primera vez? Crear cuenta</button>
+        <button class="btn ghost block" type="button" id="authForgot">¿Olvidaste tu contraseña?</button>
         <p class="hint center" id="authMsg"></p>
+      </form>
+      <form id="newPassForm" hidden>
+        <p class="hint center">Escribe tu nueva contraseña.</p>
+        <label class="field"><span>Nueva contraseña</span><input id="newPass" type="password" autocomplete="new-password" minlength="6" required></label>
+        <button class="btn primary block" type="submit" id="newPassSubmit">Guardar contraseña</button>
+        <p class="hint center" id="newPassMsg"></p>
       </form>
     </div>
   </section>

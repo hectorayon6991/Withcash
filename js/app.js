@@ -4,6 +4,9 @@
 
   // ---------- Config / cliente ----------
   const CFG = window.WITHCASH_CONFIG || {};
+  // Se lee antes de crear el cliente: Supabase limpia el #hash del enlace del correo al procesarlo.
+  const AUTH_HASH = new URLSearchParams(location.hash.slice(1));
+  let recovering = AUTH_HASH.get("type") === "recovery";
   const sb = CFG.supabaseUrl && CFG.supabaseKey && window.supabase
     ? window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseKey, { auth: { persistSession: true, autoRefreshToken: true } })
     : null;
@@ -1002,6 +1005,45 @@
       }
     } finally { $("#authSubmit").disabled = false; }
   });
+  $("#authForgot").addEventListener("click", async () => {
+    const email = $("#authEmail").value.trim(), msg = $("#authMsg");
+    if (!$("#authEmail").checkValidity() || !email) { msg.textContent = "Escribe tu correo arriba y vuelve a tocar aquí."; $("#authEmail").focus(); return; }
+    $("#authForgot").disabled = true; msg.textContent = "…";
+    try {
+      const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname });
+      msg.textContent = error
+        ? (/rate|seconds/i.test(error.message) ? "Espera un momento antes de pedir otro correo." : error.message)
+        : "📩 Si el correo está registrado, te llegará un enlace para poner una nueva contraseña.";
+    } finally { $("#authForgot").disabled = false; }
+  });
+  function showNewPassword() {
+    recovering = true;
+    S.user = null;
+    $("#appShell").hidden = true;
+    $("#authScreen").hidden = false;
+    $("#authForm").hidden = true;
+    $("#newPassForm").hidden = false;
+    $("#newPass").focus();
+  }
+  $("#newPassForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const msg = $("#newPassMsg");
+    $("#newPassSubmit").disabled = true; msg.textContent = "…";
+    try {
+      const { data, error } = await sb.auth.updateUser({ password: $("#newPass").value });
+      if (error) {
+        msg.textContent = /different from the old/i.test(error.message) ? "Debe ser distinta a la anterior."
+          : /session/i.test(error.message) ? "El enlace expiró. Vuelve a pedir el correo." : error.message;
+        return;
+      }
+      recovering = false;
+      $("#newPassForm").hidden = true;
+      $("#authForm").hidden = false;
+      history.replaceState(null, "", location.pathname);
+      toast("Contraseña actualizada");
+      startApp(data.user);
+    } finally { $("#newPassSubmit").disabled = false; }
+  });
 
   async function startApp(user) {
     S.user = user;
@@ -1029,9 +1071,14 @@
     if (navigator.storage?.persist) navigator.storage.persist().catch(() => {});
     if (!sb) { showAuth("⚠️ Falta configurar Supabase en js/config.js"); $("#authSubmit").disabled = true; return; }
     const { data } = await sb.auth.getSession();
-    if (data.session) startApp(data.session.user); else showAuth();
+    const linkErr = AUTH_HASH.get("error_description");
+    if (data.session && recovering) showNewPassword();
+    else if (data.session) startApp(data.session.user);
+    else showAuth(linkErr ? "⚠️ El enlace del correo no es válido o ya expiró. Pide uno nuevo." : "");
+    if (linkErr) history.replaceState(null, "", location.pathname);
     sb.auth.onAuthStateChange((ev, session) => {
-      if (ev === "SIGNED_IN" && session && !S.user) startApp(session.user);
+      if (ev === "PASSWORD_RECOVERY") { showNewPassword(); return; }
+      if (ev === "SIGNED_IN" && session && !S.user && !recovering) startApp(session.user);
       if (ev === "SIGNED_OUT") showAuth();
     });
   }
