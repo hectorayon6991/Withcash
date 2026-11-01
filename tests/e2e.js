@@ -171,6 +171,35 @@ process.on("unhandledRejection", (e) => { check("la prueba terminó sin interrup
   // Persistencia local: recargar conserva datos y cola
   await ctx.close();
 
+  // ---------- Tarjetas: crédito, debo, disponible y total ----------
+  {
+    const d = fixtures();
+    d.fixed_payments.push(F("t1", "Klar", "tarjeta", 1000, { day: 20 }), F("t2", "Vexi", "tarjeta", 1000, { day: 16 }));
+    const T = await boot(browser, { data: d });
+    await T.p.click("#openMore"); await T.p.waitForTimeout(200); await T.p.click('[data-mod="tarjetas"]'); await T.p.waitForTimeout(300);
+    await T.p.click("[data-cards-from-pays]"); await T.p.waitForTimeout(200);
+    const boxes = await T.p.$$(".cc-new");
+    await (await boxes[0].$('[data-k="lim"]')).fill("8000"); await (await boxes[0].$('[data-k="debt"]')).fill("1000");
+    await (await boxes[1].$('[data-k="lim"]')).fill("5000"); await (await boxes[1].$('[data-k="debt"]')).fill("2500");
+    const live = await T.p.innerText(".cc-new [data-live]");
+    await T.p.click('#dynBody [data-a="save"]'); await T.p.waitForTimeout(400);
+    const klar = d.accounts.find((a) => a.name === "Klar"), vexi = d.accounts.find((a) => a.name === "Vexi");
+    check("tarjetas: crear desde pagos (crédito, deuda y fecha de pago)", klar && Number(klar.credit_limit) === 8000 && Number(klar.initial_balance) === -1000 && klar.due_day === 20 && vexi && Number(vexi.initial_balance) === -2500, live);
+    const tot = await txt(T.p, "#view");
+    // Nu (fixture) tiene límite 20000 y debe 0 → total crédito 33,000; debo 3,500; disponible 29,500
+    check("tarjetas: total de todas (crédito / debo / disponible)", /\$33,000(?!\.\d)/.test(tot) && /\$3,500(?!\.\d)/.test(tot) && /\$29,500(?!\.\d)/.test(tot), tot.slice(0, 160));
+    // Compra con Klar y luego corregir «cuánto debo» a 1,200 → la deuda queda exacta, sin tocar el historial
+    await addEntry(T.p, { type: "gasto", amount: 500, cat: "c8", acc: klar.id, note: "Compra Klar" });
+    await T.p.click(`[data-credit="${klar.id}"]`); await T.p.waitForTimeout(250);
+    const shown = await T.p.inputValue("#itemDebt");
+    await T.p.fill("#itemDebt", "1200"); await T.p.click("#itemForm button[type=submit]"); await T.p.waitForTimeout(350);
+    const k2 = d.accounts.find((a) => a.id === klar.id);
+    check("tarjetas: editar «cuánto debo» ajusta la deuda actual", shown === "1500" && Number(k2.initial_balance) === -700 && d.movements.some((m) => m.note === "Compra Klar"), `mostraba ${shown}, saldo inicial ${k2.initial_balance}`);
+    check("tarjetas sin errores", !T.errs.length, T.errs.join(" | "));
+    if (process.env.SHOTS) { await T.p.click("#openMore"); await T.p.waitForTimeout(150); await T.p.click('[data-mod="tarjetas"]'); await T.p.waitForTimeout(300); await T.p.screenshot({ path: process.env.SHOTS + "/tarjetas.png", fullPage: true }); }
+    await T.ctx.close();
+  }
+
   // ---------- 19-20. Dos dispositivos sobre los mismos datos ----------
   {
     const shared = fixtures();

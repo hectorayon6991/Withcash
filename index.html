@@ -222,9 +222,11 @@
       <label class="field" id="itemBalanceWrap"><span>Saldo inicial (lo que tiene hoy)</span><input id="itemBalance" inputmode="decimal" placeholder="0"></label>
       <div id="creditFields" hidden>
         <div class="row2">
-          <label class="field"><span>Límite de crédito</span><input id="itemLimit" inputmode="decimal" placeholder="Ej. 30000"></label>
-          <label class="field narrow"><span>Tasa anual %</span><input id="itemApr" inputmode="decimal" placeholder="Ej. 45"></label>
+          <label class="field"><span>Crédito de la tarjeta (límite)</span><input id="itemLimit" inputmode="decimal" placeholder="Ej. 30000"></label>
+          <label class="field"><span>¿Cuánto debes hoy?</span><input id="itemDebt" inputmode="decimal" placeholder="0"></label>
         </div>
+        <div class="credit-live" id="creditLive"></div>
+        <label class="field"><span>Tasa anual % (opcional)</span><input id="itemApr" inputmode="decimal" placeholder="Ej. 45"></label>
         <div class="row2">
           <label class="field"><span>Día de corte</span><input id="itemCut" type="number" inputmode="numeric" min="1" max="31" placeholder="Ej. 3"></label>
           <label class="field"><span>Día límite de pago</span><input id="itemDue" type="number" inputmode="numeric" min="1" max="31" placeholder="Ej. 23"></label>

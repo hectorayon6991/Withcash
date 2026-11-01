@@ -472,7 +472,7 @@
     $$(".tabbar button").forEach((b) => b.classList.toggle("active", b.dataset.tab === S.tab));
     const v = $("#view");
     v.innerHTML = ({ inicio: viewInicio, movimientos: viewMovs, fijos: viewFijos, balance: viewBalance,
-      cuentas: viewCuentas, presupuestos: viewPresupuestos, ahorros: viewAhorros, deudas: viewDeudas, suscripciones: viewSuscripciones })[S.tab]();
+      cuentas: viewCuentas, tarjetas: viewTarjetas, presupuestos: viewPresupuestos, ahorros: viewAhorros, deudas: viewDeudas, suscripciones: viewSuscripciones })[S.tab]();
     updateBadge();
   }
 
@@ -705,22 +705,17 @@
     }
 
     // Crédito y deudas
-    const cs = creditSummary();
-    if (cs.cards.length || cs.loans.length) {
+    const cs = creditSummary(), pendCards = pendingCardPayments();
+    if (cs.cards.length || cs.loans.length || pendCards.length) {
       html += `<section class="card tone" style="--t:#ff8fa3">
-        <div class="c-head"><span class="c-title">Crédito y deudas</span><button class="chev" data-credit aria-label="Ver tarjetas">${ico("chevR")}</button></div>
-        <div class="split3">
-          <div><span class="k">Crédito total</span><b class="num">${money(cs.limit)}</b></div>
-          <div><span class="k">Disponible</span><b class="num pos">${money(cs.avail)}</b></div>
-          <div><span class="k">Deuda total</span><b class="num neg">${money(cs.debt)}</b></div>
-        </div>
+        <div class="c-head"><span class="c-title">Tarjetas y deudas</span><button class="chev" data-goto="tarjetas" aria-label="Ver tarjetas">${ico("chevR")}</button></div>
+        ${cs.cards.length ? `<div class="hint" style="margin:0 0 6px">Total de tus tarjetas</div>${triple(cs.limit, cs.used, cs.limit ? cs.avail : null)}` : ""}
+        ${cs.loansLeft ? `<p class="hint" style="margin:10px 0 0">Préstamos pendientes: <b class="num neg">${money(cs.loansLeft)}</b> · deuda total <b class="num neg">${money(cs.debt)}</b></p>` : ""}
         ${cs.limit ? `<div class="bar-soft ${cs.used / cs.limit >= 0.8 ? "over" : ""}"><i style="width:${Math.min(100, cs.used / cs.limit * 100).toFixed(1)}%"></i></div>
           <div class="foot"><span>Utilizado ${money(cs.used)}</span><span>${Math.round(cs.used / cs.limit * 100)}%</span></div>` : ""}
-        <ul class="list" style="margin-top:8px">${cs.cards.map((c) => `<li class="item tap" data-credit="${c.a.id}">
-          ${tile(iconKey(c.a.icon, c.a.name, "card"), colorFor(c.a.id))}
-          <div class="main"><div class="t">${esc(c.a.name)} <span class="amt-inline">${money(c.used)}${c.limit ? ` de ${money(c.limit)}` : ""}</span></div>
-            <div class="s">${c.due ? `<span class="badge ${c.dueDays <= 1 && c.used > 0 ? "bad" : c.dueDays <= 5 && c.used > 0 ? "warn" : ""}">Pagar antes del ${fmtShort(c.due)}</span>` : "Agrega su fecha de pago"}${c.cut ? ` · corte ${fmtShort(c.cut)}` : ""}</div></div>
-        </li>`).join("")}${cs.loans.map((x) => `<li class="item tap" data-edit-fixed="${x.f.id}">
+        <div class="cc-list" style="margin-top:12px">${cs.cards.map(cardBlock).join("")}</div>
+        ${pendCards.length ? `<button class="btn primary block" style="margin-top:12px" data-cards-from-pays>${ico("card")} Crear mis ${pendCards.length} tarjetas (${pendCards.map((f) => esc(f.name)).join(", ")})</button>` : ""}
+        <ul class="list">${cs.loans.map((x) => `<li class="item tap" data-edit-fixed="${x.f.id}">
           ${tile(iconKey(cat(x.f.category_id)?.icon, x.f.name, "car"), colorFor(x.f.id))}
           <div class="main"><div class="t">${esc(x.f.name)} <span class="amt-inline">${money(x.d.left)}</span></div><div class="s">${x.d.paid}/${x.d.total} cuotas pagadas</div></div>
         </li>`).join("")}</ul>
@@ -1393,11 +1388,12 @@
     const { table, row } = itemEditing, isAcc = table === "accounts";
     const credit = isAcc && $("#itemAccKind").value === "credito";
     $("#creditFields").hidden = !credit;
-    $("#itemBalanceWrap").hidden = !isAcc;
+    $("#itemBalanceWrap").hidden = !isAcc || credit;      // en tarjetas se usa «¿Cuánto debes hoy?»
     const bal = row ? accountBalance(row) : 0;
     if (credit) {
-      $("#itemBalanceWrap span").textContent = row ? "Deuda inicial (cuando la diste de alta)" : "¿Cuánto debes hoy en esta tarjeta?";
-      $("#itemBalance").value = row ? String(Math.abs(Number(row.initial_balance || 0))) : "";
+      const used = row && isCredit(row) ? creditInfo(row).used : 0;
+      if (!$("#itemDebt").dataset.touched) $("#itemDebt").value = row && used ? String(used) : "";
+      paintCreditLive();
     } else {
       $("#itemBalanceWrap span").textContent = row ? `Saldo inicial (saldo actual: ${money(bal)})` : "Saldo inicial (lo que tiene hoy)";
       $("#itemBalance").value = row ? String(Number(row.initial_balance || 0)) : "";
@@ -1412,6 +1408,13 @@
         <div><span>Intereses pagados ${today().slice(0, 4)}</span><b class="num">${money(c.paidInterest)}</b></div>`;
     }
   }
+  // Disponible = crédito − lo que debes (se recalcula al escribir)
+  function paintCreditLive() {
+    const lim = C(parseAmount($("#itemLimit").value) || 0), debt = C(parseAmount($("#itemDebt").value) || 0);
+    $("#creditLive").innerHTML = lim ? `<span>Disponible</span><b class="num ${lim - debt < 0 ? "neg" : "pos"}">${money(P(lim - debt))}</b><small>${Math.round(debt / lim * 100)}% utilizado</small>`
+      : `<span>Disponible</span><b class="num">—</b><small>Escribe el crédito de la tarjeta</small>`;
+  }
+  ["#itemLimit", "#itemDebt"].forEach((id) => $(id).addEventListener("input", (e) => { e.target.dataset.touched = "1"; paintCreditLive(); }));
   $("#itemAccKind").addEventListener("change", () => {
     if (!itemEditing.row) itemIconKey = { efectivo: "cash", debito: "bank", credito: "card", ahorro: "piggy", inversion: "trendUp" }[$("#itemAccKind").value] || itemIconKey;
     renderIconGrid(); syncItemKind();
@@ -1439,8 +1442,9 @@
     itemIconKey = b.dataset.icon;
     $$("#itemIcons button").forEach((x) => x.classList.toggle("active", x === b));
   });
-  function openItem(table, row, kind) {
+  function openItem(table, row, kind, accKind) {
     itemEditing = { table, row };
+    delete $("#itemDebt").dataset.touched; delete $("#itemLimit").dataset.touched;
     const isAcc = table === "accounts";
     $("#itemTitle").textContent = (row ? "Editar " : "Nueva ") + (isAcc ? "cuenta" : "categoría");
     itemIconKey = iconKey(row?.icon, row?.name, isAcc ? "wallet" : "box");
@@ -1450,7 +1454,8 @@
     $("#itemKindWrap").hidden = isAcc || !!row;
     $("#itemKind").value = row?.kind || kind || "gasto";
     $("#itemAccKindWrap").hidden = !isAcc;
-    $("#itemAccKind").value = row?.kind || "debito";
+    $("#itemAccKind").value = row?.kind || accKind || "debito";
+    if (!row && accKind === "credito") itemIconKey = "card";
     $("#itemLimit").value = row?.credit_limit ? String(Number(row.credit_limit)) : "";
     $("#itemApr").value = row?.apr ? String(Number(row.apr)) : "";
     $("#itemCut").value = row?.cut_day || "";
@@ -1484,7 +1489,12 @@
       r.kind = $("#itemAccKind").value;
       if (!dbReady() && ["banco", "otra"].includes(r.kind)) { needDb(); return; }
       const credit = r.kind === "credito", ib = parseAmount($("#itemBalance").value) || 0;
-      r.initial_balance = credit ? -Math.abs(ib) : ib;     // en crédito se captura lo que se debe
+      if (credit) {
+        // Se captura lo que se debe HOY: el saldo inicial se ajusta para que saldo actual = −deuda (sin tocar el historial)
+        const debtC = C(Math.abs(parseAmount($("#itemDebt").value) || 0));
+        const movC = row ? WCFin.accountBalanceC({ ...row, initial_balance: 0 }, S.movements, S.debts || [], S.debtPays || []) : 0;
+        r.initial_balance = P(-debtC - movC);
+      } else r.initial_balance = ib;
       const num = (sel, min, max) => { const v = parseInt($(sel).value, 10); return credit && v >= min && v <= max ? v : null; };
       r.credit_limit = credit ? parseAmount($("#itemLimit").value) || null : null;
       r.apr = credit ? parseAmount($("#itemApr").value) || null : null;
@@ -1862,6 +1872,7 @@
 
   // Secciones secundarias (menú «Más»)
   const MODULES = [
+    { tab: "tarjetas", name: "Tarjetas", icon: "card", color: "#ff8fa3" },
     { tab: "cuentas", name: "Cuentas", icon: "wallet", color: "#7aa2ff" },
     { tab: "presupuestos", name: "Presupuestos", icon: "target", color: "#ffb36b" },
     { tab: "ahorros", name: "Ahorros", icon: "piggy", color: "#3ddc97" },
@@ -1960,6 +1971,69 @@
         else if (act === "move") openEntry({ type: "transferencia", account_id: a.id });
         else if (act === "pay") { const from = activeAccs().find((y) => !isCredit(y) && y.id !== a.id); openEntry({ type: "transferencia", amount: ci.used || "", account_id: from?.id, to_account_id: a.id, note: `Pago ${a.name}` }); }
         else if (act === "all") { S.movAcc = a.id; S.movFilter = "todos"; goTab("movimientos"); }
+      });
+    });
+  }
+
+  // ---------- Tarjetas de crédito: crédito, lo que debo y disponible ----------
+  // Sin «.00» para que las cantidades quepan completas en pantallas angostas
+  const m0 = (v) => money(v).replace(/\.00$/, "");
+  const triple = (lim, debt, avail) => `<div class="triple">
+      <div><span>Crédito</span><b class="num">${lim ? m0(lim) : "—"}</b></div>
+      <div><span>Debo</span><b class="num ${debt > 0 ? "neg" : ""}">${m0(debt)}</b></div>
+      <div><span>Disponible</span><b class="num ${avail == null ? "" : avail < 0 ? "neg" : "pos"}">${avail == null ? "—" : m0(avail)}</b></div></div>`;
+  function cardBlock(c) {
+    const pct = c.limit ? Math.min(1, c.used / c.limit) : 0, col = c.a.color || colorFor(c.a.id);
+    return `<div class="cc tap" data-credit="${c.a.id}">
+      <div class="cc-head">${tile(iconKey(c.a.icon, c.a.name, "card"), col, "sm")}<b>${esc(c.a.name)}</b>
+        ${c.due ? `<span class="badge ${c.used > 0 && c.dueDays <= 1 ? "bad" : c.used > 0 && c.dueDays <= 5 ? "warn" : ""}">Pagar antes del ${fmtShort(c.due)}</span>` : `<span class="badge">Sin fecha de pago</span>`}</div>
+      ${triple(c.limit, c.used, c.limit ? c.avail : null)}
+      ${c.limit ? `<div class="bar-soft ${pct >= 0.8 ? "over" : ""}" style="--t:${col};margin-top:10px"><i style="width:${(pct * 100).toFixed(1)}%"></i></div>` : `<p class="hint" style="margin:8px 0 0">Toca para agregar el crédito de esta tarjeta</p>`}
+    </div>`;
+  }
+  // Pagos de tarjeta registrados como «Pagos» que todavía no son una tarjeta (por nombre)
+  const pendingCardPayments = () => {
+    const names = new Set(activeAccs().filter(isCredit).map((a) => a.name.trim().toLowerCase()));
+    return S.fixed.filter((f) => f.active && f.kind === "tarjeta" && !names.has(f.name.trim().toLowerCase()));
+  };
+  function viewTarjetas() {
+    const cs = creditSummary(), cards = cs.cards;
+    const debtC = cards.reduce((s, c) => s + C(c.used), 0), limC = cards.reduce((s, c) => s + C(c.limit), 0);
+    const pend = pendingCardPayments();
+    let html = `<section class="card tone" style="--t:#ff8fa3"><div class="c-head"><span class="c-title">Todas mis tarjetas</span>${pill(`${cards.length} tarjeta${cards.length === 1 ? "" : "s"}`, "#ff8fa3", "card")}</div>
+      ${triple(P(limC), P(debtC), limC ? P(limC - debtC) : null)}
+      ${limC ? `<div class="bar-soft ${debtC / limC >= 0.8 ? "over" : ""}" style="margin-top:12px"><i style="width:${Math.min(100, debtC / limC * 100).toFixed(1)}%"></i></div>
+        <div class="foot"><span>Utilizado</span><span>${Math.round(debtC / limC * 100)}%</span></div>` : ""}
+    </section>`;
+    if (pend.length) html += `<section class="card"><div class="c-head"><span class="c-title">Tus pagos de tarjeta</span></div>
+      <p class="hint" style="margin:0 0 10px">Tienes ${pend.length} tarjeta(s) registradas solo como pago mensual (${pend.map((f) => esc(f.name)).join(", ")}). Conviértelas en tarjetas para ver su crédito y lo disponible.</p>
+      <button class="btn primary block" data-cards-from-pays>${ico("card")} Crear mis tarjetas</button></section>`;
+    if (cards.length) html += `<section class="card"><div class="cc-list">${cards.map(cardBlock).join("")}</div></section>`;
+    else if (!pend.length) html += `<section class="card"><div class="empty"><div class="e">${ico("card")}</div>Agrega tus tarjetas de crédito para ver cuánto debes y cuánto tienes disponible.</div></section>`;
+    html += `<button class="btn block" data-new-card>${ico("plus")} Agregar tarjeta</button>`;
+    return html;
+  }
+  // Crear varias tarjetas a partir de los pagos de tarjeta: solo se escribe el crédito y lo que se debe
+  function cardsFromPayments() {
+    const pend = pendingCardPayments(); if (!pend.length) return;
+    openDyn(`<h2>Crear mis tarjetas</h2><p class="hint">Escribe el crédito (límite) y cuánto debes hoy en cada una. El disponible se calcula solo. Puedes dejar en blanco las que no sepas.</p>
+      ${pend.map((f) => `<div class="cc-new" data-fid="${f.id}"><b>${esc(f.name)}</b><span class="hint">Pago el día ${f.day}</span>
+        <div class="row2"><label class="field"><span>Crédito</span><input class="inp" data-k="lim" inputmode="decimal" placeholder="0"></label><label class="field"><span>Debo</span><input class="inp" data-k="debt" inputmode="decimal" placeholder="0"></label></div>
+        <div class="credit-live" data-live></div></div>`).join("")}
+      <div class="sheet-actions"><button type="button" class="btn ghost" data-close>Cancelar</button><button type="button" class="btn primary" data-a="save">Crear tarjetas</button></div>`, (root) => {
+      const paint = (box) => { const l = C(parseAmount(box.querySelector('[data-k="lim"]').value) || 0), d = C(parseAmount(box.querySelector('[data-k="debt"]').value) || 0);
+        box.querySelector("[data-live]").innerHTML = l ? `<span>Disponible</span><b class="num ${l - d < 0 ? "neg" : "pos"}">${money(P(l - d))}</b>` : ""; };
+      root.addEventListener("input", (e) => { const box = e.target.closest(".cc-new"); if (box) paint(box); });
+      root.addEventListener("click", (e) => {
+        if (!e.target.closest('[data-a="save"]')) return;
+        const base = S.accounts.length;
+        const ops = [...root.querySelectorAll(".cc-new")].map((box, i) => {
+          const f = S.fixed.find((x) => x.id === box.dataset.fid);
+          const lim = parseAmount(box.querySelector('[data-k="lim"]').value) || 0, debt = Math.abs(parseAmount(box.querySelector('[data-k="debt"]').value) || 0);
+          return { table: "accounts", op: "upsert", row: { id: uuid(), user_id: S.user.id, name: f.name.slice(0, 40), icon: "card", kind: "credito", initial_balance: round2(-debt),
+            credit_limit: lim > 0 ? round2(lim) : null, due_day: f.day || null, cut_day: null, apr: null, sort: base + i + 1, archived: false, created_at: new Date().toISOString() } };
+        });
+        mutate(ops); closeDyn(); toast(`${ops.length} tarjeta(s) creadas`);
       });
     });
   }
@@ -2451,7 +2525,7 @@
   document.addEventListener("touchmove", (e) => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
   // (el doble toque ya no hace zoom gracias a touch-action en el CSS)
   $("#view").addEventListener("click", (e) => {
-    const t = e.target.closest("[data-mov],[data-mov-open],[data-pay],[data-goto],[data-new-fixed],[data-edit-fixed],[data-filter],[data-catgo],[data-credit],[data-export],[data-acc-detail],[data-new-acc],[data-pay-actions],[data-new-budget],[data-new-goal],[data-goal],[data-new-debt],[data-debt],[data-new-sub],[data-period],[data-movacc],[data-clear-acc]");
+    const t = e.target.closest("[data-mov],[data-mov-open],[data-pay],[data-goto],[data-new-fixed],[data-edit-fixed],[data-filter],[data-catgo],[data-credit],[data-export],[data-acc-detail],[data-new-acc],[data-pay-actions],[data-new-budget],[data-new-goal],[data-goal],[data-new-debt],[data-debt],[data-new-sub],[data-period],[data-movacc],[data-clear-acc],[data-new-card],[data-cards-from-pays]");
     if (!t) return;
     if (t.dataset.pay) payFixed(t.dataset.pay, t.dataset.month);
     else if (t.dataset.movOpen) openEntry({ id: t.dataset.movOpen });
@@ -2460,6 +2534,8 @@
     else if (t.dataset.export) $({ pdf: "#exportPdf", xlsx: "#exportXlsx", csv: "#exportCsv" }[t.dataset.export]).click();
     else if (t.dataset.accDetail) accountDetail(t.dataset.accDetail);
     else if (t.hasAttribute("data-new-acc")) openItem("accounts", null);
+    else if (t.hasAttribute("data-new-card")) openItem("accounts", null, null, "credito");
+    else if (t.hasAttribute("data-cards-from-pays")) cardsFromPayments();
     else if (t.dataset.payActions) paymentActions(t.dataset.payActions);
     else if (t.hasAttribute("data-new-budget")) openFixed(null, { kind: "presupuesto", frequency: "mensual" });
     else if (t.hasAttribute("data-new-sub")) openFixed(null, { kind: "suscripcion" });

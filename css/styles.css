@@ -542,3 +542,21 @@ button { cursor: pointer; }
   .view { max-width: 980px; }
   .ind-grid { grid-template-columns: repeat(4, 1fr); }
 }
+
+/* Tarjetas de crédito: crédito · debo · disponible */
+.triple { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.triple > div { background: var(--soft); border: 1px solid var(--border); border-radius: 14px; padding: 9px 10px; display: grid; gap: 2px; min-width: 0; }
+.triple span { font-size: 12px; color: var(--text-2); }
+.triple b { font-size: clamp(13px, 3.9vw, 16px); font-weight: 700; letter-spacing: -.02em; overflow-wrap: anywhere; }
+.triple > div { padding: 9px 8px; }
+.cc-list { display: grid; gap: 12px; }
+.cc { border: 1px solid var(--border); background: var(--surface-2); border-radius: 20px; padding: 12px; cursor: pointer; }
+.cc-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+.cc-head b { flex: 1; min-width: 0; font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.credit-live { display: flex; align-items: baseline; gap: 8px; background: var(--accent-soft); border-radius: 14px; padding: 10px 12px; margin: 0 0 10px; }
+.credit-live:empty { display: none; }
+.credit-live span { font-size: 13px; color: var(--text-2); }
+.credit-live b { font-size: 18px; }
+.credit-live small { margin-left: auto; font-size: 12px; color: var(--muted); }
+.cc-new { border: 1px solid var(--border); border-radius: 18px; padding: 12px; margin-bottom: 10px; display: grid; gap: 4px; }
+.cc-new .row2 { margin: 6px 0 0; }
