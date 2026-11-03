@@ -482,6 +482,8 @@ process.on("unhandledRejection", (e) => { check("la prueba terminó sin interrup
   // ---------- Tema claro y escritorio ----------
   ({ p, errs, ctx } = await boot(browser, { device: "Desktop Chrome", data: { ...fixtures(), settings: { ...fixtures().settings, theme: "claro" } } }));
   check("25. escritorio sin errores", !errs.length, errs.join(" | "));
+  await p.waitForTimeout(1600); await p.mouse.move(600, 400); await p.mouse.wheel(0, 600); await p.waitForTimeout(500);
+  check("escritorio: la rueda del mouse baja la página principal", (await p.evaluate(() => scrollY)) > 0, String(await p.evaluate(() => scrollY)));
   check("modo claro aplicado", (await p.evaluate(() => document.documentElement.dataset.theme)) === "light");
   if (process.env.SHOTS) await p.screenshot({ path: process.env.SHOTS + "/e2e-desktop-claro.png", fullPage: true });
   await ctx.close();
